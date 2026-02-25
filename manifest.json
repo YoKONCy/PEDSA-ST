@@ -1,0 +1,10 @@
+{
+    "display_name": "PEDSA-ST",
+    "loading_order": 600,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "author": "YoKONcy",
+    "version": "1.0.0",
+    "description": "基于激活扩散模型与 SimHash 多模态共鸣的记忆拓扑操作系统喵~"
+}
