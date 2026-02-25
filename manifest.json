@@ -1,0 +1,10 @@
+{
+    "display_name": "PEDSA-JS",
+    "loading_order": 600,
+    "requires": [],
+    "optional": [],
+    "js": "src/index.js",
+    "author": "PEDSA Team",
+    "version": "1.0.0",
+    "description": "基于激活扩散模型与 SimHash 多模态共鸣的记忆拓扑操作系统喵~"
+}
