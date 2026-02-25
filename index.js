@@ -20,9 +20,18 @@
 (function() {
     // 检查是否已经在 iframe 中运行，防止套娃喵~
     const isInIframe = window.self !== window.top;
+    
+    // 增加调试日志，帮主人看清现在的环境喵~
+    console.log('[PEDSA] 脚本运行环境检查:', {
+        isInIframe,
+        href: window.location.href,
+        pathname: window.location.pathname
+    });
+
     if (isInIframe) {
-        // 如果是在 iframe 中，通常是因为 dashboard.html 加载了 index.js
-        // 我们不应该在这里执行任何初始化逻辑喵~
+        // 如果是在 iframe 中，通常是因为 dashboard.html 加载了 index.js 或者路径错误加载了主页面
+        // 我们绝对不能在这里初始化插件逻辑，否则会无限递归喵！
+        console.warn('[PEDSA] 检测到处于 iframe 环境，停止初始化以防止套娃喵~');
         return;
     }
 
@@ -30,16 +39,31 @@
     console.log('🐈 [PEDSA] 核心脚本加载成功！(Bundled)');
     console.log('====================================');
 
-    // 路径识别逻辑喵~
+    // 路径识别逻辑优化喵~
     const getBasePath = () => {
-        // 1. 尝试使用 currentScript
+        // 1. 优先尝试从错误堆栈中提取路径（这在某些加载器下更可靠喵~）
+        try {
+            const err = new Error();
+            const stack = err.stack;
+            if (stack) {
+                const matches = stack.match(/((?:https?|file):\/\/[^/]+\/[^:]+\/)/);
+                if (matches && matches[1] && matches[1].includes('extensions')) {
+                    const path = matches[1];
+                    console.log('[PEDSA] 通过堆栈追踪识别路径:', path);
+                    return path;
+                }
+            }
+        } catch (e) {}
+
+        // 2. 尝试使用 currentScript
         if (document.currentScript && document.currentScript.src) {
             const src = document.currentScript.src;
             const path = src.substring(0, src.lastIndexOf('/') + 1);
             console.log('[PEDSA] 通过 currentScript 识别路径:', path);
             return path;
         }
-        // 2. 扫描所有 script 标签
+
+        // 3. 扫描所有 script 标签
         const scripts = document.getElementsByTagName('script');
         for (let i = scripts.length - 1; i >= 0; i--) {
             const src = scripts[i].src;
@@ -49,13 +73,545 @@
                 return path;
             }
         }
-        // 3. 最后的保底路径（SillyTavern 插件通常所在的路径）
+
+        // 4. 如果是在 SillyTavern 环境，通常可以通过这种方式推断喵~
+        if (window.location.pathname.includes('/')) {
+            const stPath = '/extensions/PEDSA-JS/';
+            console.log('[PEDSA] 使用标准扩展路径推断:', stPath);
+            return stPath;
+        }
+
         console.warn('[PEDSA] 路径识别失败，使用保底路径喵~');
         return '/extensions/PEDSA-JS/';
     };
 
     const globalBasePath = getBasePath();
     console.log('[PEDSA] 最终确定的根目录:', globalBasePath);
+
+    /**
+     * PEDSA UI 管理器 - 负责全屏界面的注入与逻辑
+     * 采用单页注入模式，不使用 iframe 以彻底解决套娃问题喵！
+     */
+    class PEDSAUI {
+        constructor(pedsa) {
+            this.pedsa = pedsa;
+            this.overlay = null;
+            this.graph = null;
+            this.activeView = 'dashboard';
+            this.isInitialized = false;
+            this.depsLoaded = false;
+        }
+
+        /**
+         * 加载必要的外部依赖库喵~
+         */
+        async loadDependencies() {
+            if (this.depsLoaded) return;
+
+            const deps = [
+                { type: 'script', id: 'tailwind-cdn', src: 'https://cdn.tailwindcss.com' },
+                { type: 'script', id: 'lucide-cdn', src: 'https://unpkg.com/lucide@latest' },
+                { type: 'script', id: 'force-graph-cdn', src: 'https://unpkg.com/force-graph' }
+            ];
+
+            const loadPromises = deps.map(dep => {
+                if (document.getElementById(dep.id)) return Promise.resolve();
+                return new Promise((resolve, reject) => {
+                    const el = document.createElement(dep.type);
+                    el.id = dep.id;
+                    if (dep.type === 'script') {
+                        el.src = dep.src;
+                    } else {
+                        el.rel = 'stylesheet';
+                        el.href = dep.src;
+                    }
+                    el.onload = resolve;
+                    el.onerror = reject;
+                    document.head.appendChild(el);
+                });
+            });
+
+            try {
+                await Promise.all(loadPromises);
+                console.log('[PEDSA] UI 依赖库加载完成喵！');
+                this.depsLoaded = true;
+            } catch (e) {
+                console.error('[PEDSA] UI 依赖加载失败:', e);
+            }
+        }
+
+        /**
+         * 注入 CSS 样式喵~
+         */
+        injectStyles() {
+            if (document.getElementById('pedsa-ui-styles')) return;
+            const style = document.createElement('style');
+            style.id = 'pedsa-ui-styles';
+            style.innerHTML = `
+                @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap');
+                
+                #pedsa-overlay {
+                    --sky-accent: #38bdf8;
+                    --sky-glow: 0 0 20px rgba(56, 189, 248, 0.3);
+                    --energy-accent: #7dd3fc;
+                    font-family: 'Noto Sans SC', sans-serif;
+                }
+
+                #pedsa-overlay .mono { font-family: 'JetBrains Mono', monospace; }
+
+                /* 毛玻璃效果 */
+                #pedsa-overlay .glass {
+                    background: rgba(255, 255, 255, 0.03);
+                    backdrop-filter: blur(12px);
+                    -webkit-backdrop-filter: blur(12px);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+                }
+
+                #pedsa-overlay .glass-dark {
+                    background: rgba(0, 0, 0, 0.2);
+                    backdrop-filter: blur(16px);
+                    -webkit-backdrop-filter: blur(16px);
+                    border: 1px solid rgba(255, 255, 255, 0.05);
+                }
+
+                /* 视图切换辅助类 */
+                #pedsa-overlay .view-section { transition: opacity 0.3s ease, transform 0.3s ease; }
+                #pedsa-overlay .view-section.hidden { display: none; opacity: 0; transform: translateY(10px); }
+                #pedsa-overlay .view-section.active { display: block; opacity: 1; transform: translateY(0); }
+
+                /* 导航项样式优化 */
+                #pedsa-overlay .nav-item {
+                    cursor: pointer;
+                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                }
+
+                #pedsa-overlay .nav-item.active-desktop {
+                    background: rgba(56, 189, 248, 0.1);
+                    color: #7dd3fc;
+                    border-color: rgba(56, 189, 248, 0.2);
+                    box-shadow: inset 0 0 10px rgba(56, 189, 248, 0.1);
+                }
+
+                /* 响应式滚动条 */
+                #pedsa-overlay ::-webkit-scrollbar { width: 4px; }
+                #pedsa-overlay ::-webkit-scrollbar-track { background: transparent; }
+                #pedsa-overlay ::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.3); border-radius: 10px; }
+
+                @keyframes pedsa-pulse {
+                    0% { opacity: 0.4; transform: scale(1); }
+                    50% { opacity: 0.8; transform: scale(1.02); }
+                    100% { opacity: 0.4; transform: scale(1); }
+                }
+                #pedsa-overlay .energy-pulse { animation: pedsa-pulse 3s infinite ease-in-out; }
+
+                #pedsa-overlay .text-gradient {
+                    background: linear-gradient(to right, #7dd3fc, #38bdf8, #0ea5e9);
+                    -webkit-background-clip: text;
+                    background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        /**
+         * 渲染主界面喵~
+         */
+        async render() {
+            await this.loadDependencies();
+            this.injectStyles();
+
+            if (this.overlay) {
+                this.overlay.classList.remove('hidden');
+                this.updateUI();
+                return;
+            }
+
+            const overlay = document.createElement('div');
+            overlay.id = 'pedsa-overlay';
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background: radial-gradient(circle at top right, #0c4a6e, #082f49, #020617);
+                color: #f0f9ff;
+                z-index: 99999;
+                display: flex;
+                flex-direction: row;
+                overflow: hidden;
+            `;
+
+            // HTML 模板注入
+            overlay.innerHTML = `
+                <!-- 侧边栏导航 -->
+                <aside class="w-72 h-full glass-dark border-r border-white/5 flex flex-col z-20 sidebar">
+                    <div class="p-8">
+                        <div class="flex items-center gap-3 mb-2">
+                            <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center shadow-[0_0_20px_rgba(56,189,248,0.4)] energy-pulse">
+                                <i data-lucide="brain-circuit" class="text-white w-6 h-6"></i>
+                            </div>
+                            <h1 class="text-2xl font-black tracking-tighter text-white">PEDSA <span class="text-sky-400">JS</span></h1>
+                        </div>
+                        <p class="text-[10px] font-bold text-sky-400/50 uppercase tracking-[0.2em] ml-1">Memory Topology OS</p>
+                    </div>
+
+                    <nav class="flex-1 px-4 space-y-2">
+                        <div data-view="dashboard" class="nav-item active-desktop flex items-center gap-4 px-5 py-4 rounded-2xl border border-transparent">
+                            <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+                            <span class="font-medium">系统概览</span>
+                        </div>
+                        <div data-view="network" class="nav-item text-sky-100/50 hover:bg-white/5 hover:text-sky-200 flex items-center gap-4 px-5 py-4 rounded-2xl border border-transparent">
+                            <i data-lucide="share-2" class="w-5 h-5"></i>
+                            <span class="font-medium">拓扑图谱</span>
+                        </div>
+                        <div data-view="events" class="nav-item text-sky-100/50 hover:bg-white/5 hover:text-sky-200 flex items-center gap-4 px-5 py-4 rounded-2xl border border-transparent">
+                            <i data-lucide="activity" class="w-5 h-5"></i>
+                            <span class="font-medium">事件流</span>
+                        </div>
+                        <div data-view="settings" class="nav-item text-sky-100/50 hover:bg-white/5 hover:text-sky-200 flex items-center gap-4 px-5 py-4 rounded-2xl border border-transparent">
+                            <i data-lucide="settings-2" class="w-5 h-5"></i>
+                            <span class="font-medium">内核配置</span>
+                        </div>
+                    </nav>
+
+                    <div class="p-6">
+                        <div class="glass rounded-2xl p-4 border-sky-400/10">
+                            <div class="flex items-center gap-2 mb-3">
+                                <div class="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.5)]"></div>
+                                <span class="text-[10px] font-bold text-sky-100/40 uppercase tracking-widest">Core Status: Active</span>
+                            </div>
+                            <button id="pedsa-close-btn" class="w-full py-3 bg-white/5 hover:bg-white/10 rounded-xl text-xs font-bold transition-all border border-white/5">
+                                返回酒馆
+                            </button>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- 主内容区域 -->
+                <main class="flex-1 h-full relative flex flex-col overflow-hidden main-content">
+                    <!-- 顶部状态栏 -->
+                    <header class="h-20 px-10 flex items-center justify-between z-10">
+                        <div class="flex items-center gap-4">
+                            <div class="h-8 w-[1px] bg-white/10"></div>
+                            <div id="breadcrumb" class="text-sm text-sky-100/40 font-medium">System / <span class="text-sky-100">Dashboard</span></div>
+                        </div>
+                        <div class="flex items-center gap-6">
+                            <div class="flex flex-col items-end">
+                                <span class="text-[10px] font-bold text-sky-400/50 uppercase">Active Nodes</span>
+                                <span class="text-lg font-black text-white mono" id="stat-nodes-count">0</span>
+                            </div>
+                            <button id="pedsa-refresh-btn" class="w-12 h-12 glass rounded-2xl flex items-center justify-center hover:bg-sky-500/10 hover:border-sky-500/30 transition-all">
+                                <i data-lucide="refresh-cw" class="w-5 h-5 text-sky-400"></i>
+                            </button>
+                        </div>
+                    </header>
+
+                    <div class="flex-1 overflow-y-auto px-10 pb-10 custom-scrollbar">
+                        <!-- 概览视图 -->
+                        <section id="content-dashboard" class="view-section active space-y-8">
+                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                <div class="lg:col-span-2 glass rounded-[2.5rem] p-10 border-sky-400/10 relative overflow-hidden group">
+                                    <div class="absolute -right-20 -top-20 w-80 h-80 bg-sky-500/10 rounded-full blur-[100px] group-hover:bg-sky-500/20 transition-all duration-700"></div>
+                                    <h3 class="text-4xl font-black mb-2 text-white tracking-tighter">记忆扩散指纹</h3>
+                                    <p class="text-sky-400/60 mb-8 font-medium">当前活跃状态的四维向量共鸣分析</p>
+                                    
+                                    <div class="grid grid-cols-2 gap-10 mt-10">
+                                        <div class="space-y-4">
+                                            <div class="flex justify-between text-[11px] font-bold uppercase tracking-wider text-sky-400/70">
+                                                <span>Semantic 语义</span>
+                                                <span class="text-sky-300" id="text-semantic">0%</span>
+                                            </div>
+                                            <div class="h-2.5 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5" id="bar-semantic">
+                                                <div class="h-full bg-gradient-to-r from-sky-600 to-sky-400 rounded-full w-[0%] transition-all duration-500"></div>
+                                            </div>
+                                        </div>
+                                        <div class="space-y-4">
+                                            <div class="flex justify-between text-[11px] font-bold uppercase tracking-wider text-sky-400/70">
+                                                <span>Temporal 时间</span>
+                                                <span class="text-sky-300" id="text-temporal">0%</span>
+                                            </div>
+                                            <div class="h-2.5 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5" id="bar-temporal">
+                                                <div class="h-full bg-gradient-to-r from-sky-500 to-sky-300 rounded-full w-[0%] transition-all duration-500"></div>
+                                            </div>
+                                        </div>
+                                        <div class="space-y-4">
+                                            <div class="flex justify-between text-[11px] font-bold uppercase tracking-wider text-sky-400/70">
+                                                <span>Affective 情感</span>
+                                                <span class="text-sky-300" id="text-affective">0%</span>
+                                            </div>
+                                            <div class="h-2.5 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5" id="bar-affective">
+                                                <div class="h-full bg-gradient-to-r from-pink-500 to-pink-300 rounded-full w-[0%] transition-all duration-500"></div>
+                                            </div>
+                                        </div>
+                                        <div class="space-y-4">
+                                            <div class="flex justify-between text-[11px] font-bold uppercase tracking-wider text-sky-400/70">
+                                                <span>Entity 实体</span>
+                                                <span class="text-sky-300" id="text-entity">0%</span>
+                                            </div>
+                                            <div class="h-2.5 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5" id="bar-entity">
+                                                <div class="h-full bg-gradient-to-r from-sky-400 to-sky-200 rounded-full w-[0%] transition-all duration-500"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="glass rounded-[2.5rem] p-8 border-sky-400/10 flex flex-col">
+                                    <h4 class="text-xl font-bold mb-6 flex items-center gap-3 text-white">
+                                        <i data-lucide="terminal" class="w-5 h-5 text-sky-400"></i>
+                                        内核运行日志
+                                    </h4>
+                                    <div id="log-container" class="flex-1 space-y-3 mono text-[11px] overflow-y-auto pr-2 custom-scrollbar">
+                                        <!-- 日志项 -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="glass rounded-[2.5rem] p-10 border-sky-400/10">
+                                <h3 class="text-2xl font-bold mb-8 flex items-center gap-3 text-white">
+                                    <i data-lucide="history" class="w-6 h-6 text-sky-400"></i>
+                                    最新记忆事件
+                                </h3>
+                                <div id="event-list-container" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <!-- 事件卡片 -->
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- 图谱视图 -->
+                        <section id="content-network" class="view-section hidden h-[calc(100vh-160px)] relative overflow-hidden glass rounded-[2.5rem] border-sky-400/10">
+                            <div id="graph-container" class="w-full h-full"></div>
+                            
+                            <div id="node-detail" class="absolute bottom-8 right-8 p-6 glass rounded-3xl hidden z-20 w-72 border-sky-400/30 shadow-2xl">
+                                <!-- 节点详情内容 -->
+                            </div>
+                        </section>
+
+                        <!-- 配置视图 -->
+                        <section id="content-settings" class="view-section hidden space-y-8">
+                            <div class="glass rounded-[2.5rem] p-10 border-sky-400/10 max-w-3xl">
+                                <h3 class="text-2xl font-bold mb-8 text-white">LLM 认知接口配置</h3>
+                                <div class="space-y-6">
+                                    <!-- 配置项 -->
+                                    <div class="space-y-2">
+                                        <label class="text-xs font-bold text-sky-400/60 uppercase tracking-widest ml-1">API Endpoint</label>
+                                        <input type="text" id="setting-llm-endpoint" class="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 focus:border-sky-500/50 outline-none transition-all mono text-sm" placeholder="https://api.openai.com/v1">
+                                    </div>
+                                    <!-- ... 其他配置项 ... -->
+                                    <button id="save-settings-btn" class="w-full py-4 bg-sky-500 hover:bg-sky-600 rounded-2xl font-bold transition-all shadow-lg shadow-sky-500/20">
+                                        保存配置
+                                    </button>
+                                </div>
+                            </div>
+                        </section>
+                        
+                        <!-- 事件流视图 -->
+                        <section id="content-events" class="view-section hidden space-y-8">
+                            <div id="full-event-list" class="space-y-6">
+                                <!-- 事件列表 -->
+                            </div>
+                        </section>
+                    </div>
+                </main>
+            `;
+
+            this.overlay = overlay;
+            document.body.appendChild(overlay);
+
+            // 初始化图标
+            lucide.createIcons();
+
+            // 绑定事件
+            this.bindEvents();
+            
+            // 初始化图谱
+            this.initGraph();
+
+            this.isInitialized = true;
+            this.updateUI();
+        }
+
+        bindEvents() {
+            // 侧边栏切换
+            this.overlay.querySelectorAll('.nav-item').forEach(item => {
+                item.onclick = () => {
+                    const view = item.getAttribute('data-view');
+                    this.switchView(view);
+                };
+            });
+
+            // 关闭按钮
+            this.overlay.querySelector('#pedsa-close-btn').onclick = () => {
+                this.overlay.classList.add('hidden');
+            };
+
+            // 刷新按钮
+            this.overlay.querySelector('#pedsa-refresh-btn').onclick = () => {
+                this.updateUI();
+            };
+
+            // 配置保存
+            this.overlay.querySelector('#save-settings-btn').onclick = () => {
+                this.saveSettings();
+            };
+        }
+
+        switchView(viewName) {
+            this.activeView = viewName;
+            
+            // 更新 UI 状态
+            this.overlay.querySelectorAll('.view-section').forEach(section => {
+                section.classList.toggle('hidden', section.id !== `content-${viewName}`);
+                if (section.id === `content-${viewName}`) {
+                    setTimeout(() => section.classList.add('active'), 10);
+                } else {
+                    section.classList.remove('active');
+                }
+            });
+
+            this.overlay.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.toggle('active-desktop', item.getAttribute('data-view') === viewName);
+                if (item.getAttribute('data-view') !== viewName) {
+                    item.classList.add('text-sky-100/50', 'hover:bg-white/5', 'hover:text-sky-200');
+                } else {
+                    item.classList.remove('text-sky-100/50', 'hover:bg-white/5', 'hover:text-sky-200');
+                }
+            });
+
+            // 更新面包屑
+            const breadcrumb = this.overlay.querySelector('#breadcrumb');
+            const viewNames = {
+                dashboard: 'Dashboard',
+                network: 'Topology Network',
+                events: 'Event Stream',
+                settings: 'Core Settings'
+            };
+            breadcrumb.innerHTML = `System / <span class="text-sky-100">${viewNames[viewName]}</span>`;
+
+            // 特殊处理图谱
+            if (viewName === 'network') {
+                setTimeout(() => {
+                    if (this.graph) {
+                        const container = this.overlay.querySelector('#graph-container');
+                        this.graph.width(container.clientWidth);
+                        this.graph.height(container.clientHeight);
+                        this.graph.zoomToFit(400);
+                    }
+                }, 400);
+            }
+        }
+
+        initGraph() {
+            const container = this.overlay.querySelector('#graph-container');
+            this.graph = ForceGraph()(container)
+                .backgroundColor('rgba(0,0,0,0)')
+                .nodeLabel(node => `${node.name} [${node.type === 1 ? '事件' : '本体'}]`)
+                .nodeColor(node => node.color || '#38bdf8')
+                .linkColor(() => 'rgba(56, 189, 248, 0.15)')
+                .onNodeClick(node => {
+                    this.showNodeDetail(node);
+                });
+            
+            this.graph.d3Force('charge').strength(-350);
+            this.graph.d3Force('link').distance(120);
+        }
+
+        showNodeDetail(node) {
+            const detail = this.overlay.querySelector('#node-detail');
+            detail.innerHTML = `
+                <div class="flex justify-between items-start mb-4">
+                    <div class="flex flex-col">
+                        <span class="text-[9px] font-bold text-sky-400/60 uppercase tracking-widest mb-1">Node Detail</span>
+                        <h4 class="text-xl font-bold text-sky-50">${node.name}</h4>
+                    </div>
+                    <button onclick="this.parentElement.parentElement.classList.add('hidden')" class="p-2 hover:bg-white/10 rounded-xl text-sky-400/50 hover:text-sky-400 transition-colors">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <div class="space-y-3 pt-4 border-t border-white/5">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs text-sky-400/60">激活能量</span>
+                        <span class="mono text-xs text-sky-200 font-bold">${node.energy?.toFixed(4) || '0.0000'}</span>
+                    </div>
+                </div>
+            `;
+            detail.classList.remove('hidden');
+            lucide.createIcons();
+            
+            this.graph.centerAt(node.x, node.y, 1000);
+            this.graph.zoom(3, 1000);
+        }
+
+        updateUI() {
+            if (!this.overlay) return;
+            const state = this.pedsa.dashboard.getSnapshot();
+            
+            // 更新统计
+            this.overlay.querySelector('#stat-nodes-count').innerText = state.graph.nodes.length;
+
+            // 更新指纹
+            if (state.fingerprint) {
+                const f = state.fingerprint;
+                const updateBar = (id, val) => {
+                    const percent = Math.round(val * 100) + '%';
+                    this.overlay.querySelector(`#text-${id}`).innerText = percent;
+                    this.overlay.querySelector(`#bar-${id} > div`).style.width = percent;
+                };
+                updateBar('semantic', f.semantic);
+                updateBar('temporal', f.temporal);
+                updateBar('affective', f.affective);
+                updateBar('entity', f.entity);
+            }
+
+            // 更新日志
+            const logContainer = this.overlay.querySelector('#log-container');
+            if (state.logs && state.logs.length > 0) {
+                logContainer.innerHTML = state.logs.map(log => `
+                    <div class="flex gap-2 leading-relaxed animate-fade-in">
+                        <span class="text-sky-500/30 font-bold h-fit mt-0.5">${log.time.split(' ')[1]}</span>
+                        <span class="text-sky-400 font-bold px-1.5 rounded bg-white/5 text-[9px] h-fit mt-0.5">${log.type}</span>
+                        <span class="text-sky-100/80">${log.content}</span>
+                    </div>
+                `).join('');
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+
+            // 更新事件
+            const eventContainer = this.overlay.querySelector('#event-list-container');
+            if (state.events && state.events.length > 0) {
+                eventContainer.innerHTML = state.events.slice(0, 4).map(ev => `
+                    <div class="glass rounded-2xl p-5 border-l-4 border-l-sky-500 animate-fade-in">
+                        <div class="flex justify-between items-start mb-3">
+                            <span class="text-[10px] font-bold text-sky-400 uppercase tracking-widest bg-sky-500/10 px-2 py-0.5 rounded">Event</span>
+                            <span class="text-[10px] mono text-sky-100/40">${ev.time}</span>
+                        </div>
+                        <p class="text-sky-100 text-sm leading-relaxed mb-4">${ev.summary}</p>
+                        <div class="flex flex-wrap gap-2">
+                            ${ev.features.map(f => `<span class="px-2 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/20 text-[9px] text-sky-300">#${f}</span>`).join('')}
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            // 更新图谱
+            if (this.graph) {
+                this.graph.graphData(state.graph);
+            }
+        }
+
+        saveSettings() {
+            const settings = {
+                endpoint: this.overlay.querySelector('#setting-llm-endpoint').value,
+                // ... 其他设置
+            };
+            this.pedsa.dashboard.saveSettings(settings);
+            const btn = this.overlay.querySelector('#save-settings-btn');
+            btn.innerText = '已保存喵！';
+            setTimeout(() => btn.innerText = '保存配置', 2000);
+        }
+    }
 
     // ==========================================
     // 1. SimHash.js
@@ -1009,25 +1565,364 @@
     // ==========================================
     // 10. PEDSA Main
     // ==========================================
-    class PEDSA {
+    class PEDSAUI {
+    constructor(parent) {
+        this.parent = parent;
+        this.isInitialized = false;
+        this.isVisible = false;
+        this.overlay = null;
+        this.graph = null;
+        this.activeView = 'dashboard';
+        this.state = null;
+        this.resourcesLoaded = false;
+    }
+
+    /**
+     * 加载 UI 依赖资源喵~
+     */
+    async _loadResources() {
+        if (this.resourcesLoaded) return;
+
+        const scripts = [
+            'https://cdn.tailwindcss.com',
+            'https://unpkg.com/lucide@latest',
+            'https://unpkg.com/force-graph'
+        ];
+
+        const loadScript = (src) => new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = src;
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+
+        try {
+            console.log('[PEDSA] 正在加载 UI 依赖资源... 喵~');
+            await Promise.all(scripts.map(loadScript));
+            this.resourcesLoaded = true;
+            console.log('[PEDSA] UI 资源加载完成！');
+        } catch (err) {
+            console.error('[PEDSA] UI 资源加载失败喵！', err);
+        }
+    }
+
+    /**
+     * 渲染 UI 喵~
+     */
+    async render() {
+        if (!this.isInitialized) {
+            await this._loadResources();
+            this._createOverlay();
+            this.isInitialized = true;
+        }
+
+        this.isVisible = !this.isVisible;
+        if (this.isVisible) {
+            this.overlay.style.display = 'flex';
+            this.overlay.classList.remove('opacity-0', 'pointer-events-none');
+            this.overlay.classList.add('opacity-100');
+            this.updateUI();
+            // 每次打开时如果是在图谱页，刷新一下图谱喵~
+            if (this.activeView === 'network') {
+                this._renderGraph();
+            }
+            // 重新运行 lucide 图标渲染喵~
+            if (window.lucide) window.lucide.createIcons();
+        } else {
+            this.overlay.classList.remove('opacity-100');
+            this.overlay.classList.add('opacity-0', 'pointer-events-none');
+            setTimeout(() => {
+                if (!this.isVisible) this.overlay.style.display = 'none';
+            }, 300);
+        }
+    }
+
+    /**
+     * 创建全屏 Overlay 喵~
+     */
+    _createOverlay() {
+        this.overlay = document.createElement('div');
+        this.overlay.id = 'pedsa-ui-overlay';
+        this.overlay.className = 'fixed inset-0 z-[9999] bg-[#020617] text-[#f0f9ff] flex flex-col md:flex-row transition-opacity duration-300 opacity-0 pointer-events-none';
+        this.overlay.style.display = 'none';
+        this.overlay.style.fontFamily = "'Noto Sans SC', sans-serif";
+
+        // 注入样式喵~
+        const style = document.createElement('style');
+        style.textContent = `
+            @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap');
+            #pedsa-ui-overlay .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+            #pedsa-ui-overlay .glass-dark { background: rgba(0, 0, 0, 0.2); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.05); }
+            #pedsa-ui-overlay .text-gradient { background: linear-gradient(to right, #7dd3fc, #38bdf8, #0ea5e9); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+            #pedsa-ui-overlay .nav-item.active { background: rgba(56, 189, 248, 0.1); color: #7dd3fc; border-color: rgba(56, 189, 248, 0.2); }
+            #pedsa-ui-overlay .view-section { display: none; }
+            #pedsa-ui-overlay .view-section.active { display: flex; flex-direction: column; height: 100%; }
+            #pedsa-ui-overlay ::-webkit-scrollbar { width: 4px; }
+            #pedsa-ui-overlay ::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.3); border-radius: 10px; }
+            @keyframes pedsa-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+            #pedsa-ui-overlay .energy-pulse { animation: pedsa-pulse 3s infinite ease-in-out; }
+        `;
+        document.head.appendChild(style);
+
+        this.overlay.innerHTML = `
+            <!-- 侧边栏 -->
+            <aside class="w-64 glass-dark border-r border-white/5 flex flex-col p-6 z-10 hidden md:flex">
+                <div class="flex items-center gap-3 mb-10">
+                    <div class="p-2 bg-sky-500/20 rounded-xl border border-sky-400/30">
+                        <i data-lucide="brain" class="text-sky-400 w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-lg tracking-tight text-gradient">PEDSA-JS</h1>
+                        <p class="text-[10px] text-sky-500/70 uppercase tracking-widest font-bold">Cognitive Core</p>
+                    </div>
+                </div>
+                <nav class="space-y-3 flex-1">
+                    <button data-view="dashboard" class="nav-item w-full flex items-center gap-3 p-3 rounded-xl border border-transparent transition-all active">
+                        <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+                        <span class="font-medium">仪表盘</span>
+                    </button>
+                    <button data-view="network" class="nav-item w-full flex items-center gap-3 p-3 rounded-xl border border-transparent transition-all">
+                        <i data-lucide="network" class="w-5 h-5"></i>
+                        <span>图谱查看</span>
+                    </button>
+                    <button data-view="events" class="nav-item w-full flex items-center gap-3 p-3 rounded-xl border border-transparent transition-all">
+                        <i data-lucide="list-checks" class="w-5 h-5"></i>
+                        <span>事件列表</span>
+                    </button>
+                    <button data-view="settings" class="nav-item w-full flex items-center gap-3 p-3 rounded-xl border border-transparent transition-all">
+                        <i data-lucide="settings" class="w-5 h-5"></i>
+                        <span>系统配置</span>
+                    </button>
+                </nav>
+                <div class="mt-auto pt-6 border-t border-white/5 flex flex-col gap-4">
+                    <div class="flex items-center gap-3 text-xs text-sky-400/70">
+                        <div class="w-2 h-2 bg-sky-400 rounded-full energy-pulse"></div>
+                        <span>引擎状态: 运行中</span>
+                    </div>
+                    <button id="pedsa-close-btn" class="flex items-center justify-center gap-2 p-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-sm">
+                        <i data-lucide="log-out" class="w-4 h-4"></i>
+                        <span>关闭面板</span>
+                    </button>
+                </div>
+            </aside>
+
+            <!-- 主内容区 -->
+            <main class="flex-1 overflow-y-auto p-4 md:p-8 relative">
+                <!-- 仪表盘 -->
+                <section id="pedsa-view-dashboard" class="view-section active">
+                    <header class="flex justify-between items-center mb-8">
+                        <div>
+                            <h2 class="text-3xl font-bold tracking-tight text-sky-50">系统概览</h2>
+                            <p class="text-sky-400/60 text-sm font-medium">实时监控记忆扩散与图谱状态</p>
+                        </div>
+                    </header>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                        <div class="p-6 glass rounded-3xl"><div class="text-sky-400/60 text-[10px] uppercase font-bold mb-2">总节点数</div><div class="text-4xl font-bold" id="pedsa-stat-nodes">0</div></div>
+                        <div class="p-6 glass rounded-3xl"><div class="text-sky-400/60 text-[10px] uppercase font-bold mb-2">平均能量</div><div class="text-4xl font-bold" id="pedsa-stat-energy">0.00</div></div>
+                        <div class="p-6 glass rounded-3xl"><div class="text-sky-400/60 text-[10px] uppercase font-bold mb-2">活跃检索</div><div class="text-4xl font-bold" id="pedsa-stat-queries">0</div></div>
+                        <div class="p-6 glass rounded-3xl"><div class="text-sky-400/60 text-[10px] uppercase font-bold mb-2">故事时间</div><div class="text-4xl font-bold" id="pedsa-stat-time">0</div></div>
+                    </div>
+                    <div class="flex-1 glass rounded-3xl overflow-hidden flex flex-col min-h-[400px]">
+                        <div class="p-5 border-b border-white/5 bg-white/5">处理日志喵~</div>
+                        <div id="pedsa-log-container" class="flex-1 p-5 overflow-y-auto font-mono text-xs space-y-2 text-sky-200/80"></div>
+                    </div>
+                </section>
+
+                <!-- 图谱查看 -->
+                <section id="pedsa-view-network" class="view-section">
+                    <div id="pedsa-graph-container" class="absolute inset-0 z-0"></div>
+                    <div class="absolute top-6 left-6 z-10 glass px-4 py-2 rounded-xl border border-sky-400/20">
+                        <h2 class="font-bold text-sky-50">记忆拓扑图</h2>
+                    </div>
+                </section>
+
+                <!-- 事件列表 -->
+                <section id="pedsa-view-events" class="view-section">
+                    <header class="mb-6">
+                        <h2 class="text-2xl font-bold text-sky-50">记忆事件流</h2>
+                        <p class="text-sky-400/60 text-sm">记录原始对话与 LLM 维护后的事件摘要</p>
+                    </header>
+                    <div class="flex-1 overflow-y-auto space-y-4 pr-2" id="pedsa-event-list-container">
+                        <div class="text-sky-400/20 text-center py-20 italic glass rounded-2xl">暂无记忆事件喵~</div>
+                    </div>
+                </section>
+
+                <!-- 系统核心配置 -->
+                <section id="pedsa-view-settings" class="view-section">
+                    <header class="mb-8">
+                        <h2 class="text-2xl font-bold text-sky-50">系统核心配置</h2>
+                        <p class="text-sky-400/60 text-sm">调整记忆引擎与 LLM 维护参数</p>
+                    </header>
+                    <div class="space-y-6">
+                        <div class="glass rounded-3xl p-6">
+                            <h3 class="text-lg font-bold text-sky-100 mb-6 flex items-center gap-2">
+                                <i data-lucide="bot" class="w-5 h-5 text-sky-400"></i>
+                                <span>图谱维护 LLM (OpenAI 兼容)</span>
+                            </h3>
+                            <div class="space-y-4">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div class="space-y-2">
+                                        <label class="text-xs font-bold text-sky-400/70 uppercase">API Endpoint</label>
+                                        <input type="text" id="pedsa-setting-llm-endpoint" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm focus:border-sky-400/50 outline-none transition-all" placeholder="https://api.openai.com/v1">
+                                    </div>
+                                    <div class="space-y-2">
+                                        <label class="text-xs font-bold text-sky-400/70 uppercase">Model Name</label>
+                                        <input type="text" id="pedsa-setting-llm-model" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm focus:border-sky-400/50 outline-none transition-all" placeholder="gpt-3.5-turbo">
+                                    </div>
+                                </div>
+                                <div class="space-y-2">
+                                    <label class="text-xs font-bold text-sky-400/70 uppercase">API Key</label>
+                                    <input type="password" id="pedsa-setting-llm-key" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm focus:border-sky-400/50 outline-none transition-all" placeholder="sk-...">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex justify-end gap-4">
+                            <button id="pedsa-save-settings" class="px-8 py-3 bg-sky-500 hover:bg-sky-400 text-white rounded-xl font-bold transition-all shadow-lg shadow-sky-500/20">保存配置喵！</button>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        `;
+
+        document.body.appendChild(this.overlay);
+
+        // 绑定事件喵~
+        this.overlay.querySelectorAll('.nav-item').forEach(btn => {
+            btn.onclick = () => this._switchView(btn.dataset.view);
+        });
+
+        this.overlay.querySelector('#pedsa-close-btn').onclick = () => this.render();
+
+        // 绑定设置保存喵~
+        this.overlay.querySelector('#pedsa-save-settings').onclick = () => {
+            const settings = {
+                llm: {
+                    endpoint: this.overlay.querySelector('#pedsa-setting-llm-endpoint').value,
+                    model: this.overlay.querySelector('#pedsa-setting-llm-model').value,
+                    key: this.overlay.querySelector('#pedsa-setting-llm-key').value
+                }
+            };
+            this.parent.dashboard.updateSettings(settings);
+            alert('配置已保存喵！');
+        };
+    }
+
+    _switchView(viewId) {
+        this.activeView = viewId;
+        this.overlay.querySelectorAll('.view-section').forEach(s => s.classList.remove('active'));
+        this.overlay.querySelector(`#pedsa-view-${viewId}`).classList.add('active');
+        
+        this.overlay.querySelectorAll('.nav-item').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.view === viewId);
+        });
+
+        if (viewId === 'network') {
+            this._renderGraph();
+        }
+
+        // 切换到设置页时填充当前值喵~
+        if (viewId === 'settings' && this.parent.dashboard) {
+            const current = this.parent.dashboard.settings;
+            if (current && current.llm) {
+                this.overlay.querySelector('#pedsa-setting-llm-endpoint').value = current.llm.endpoint || '';
+                this.overlay.querySelector('#pedsa-setting-llm-model').value = current.llm.model || '';
+                this.overlay.querySelector('#pedsa-setting-llm-key').value = current.llm.key || '';
+            }
+        }
+    }
+
+    updateUI() {
+        if (!this.isInitialized || !this.parent.dashboard) return;
+        const state = this.parent.dashboard.getSnapshot();
+        
+        // 更新统计喵~
+        const elNodes = this.overlay.querySelector('#pedsa-stat-nodes');
+        const elEnergy = this.overlay.querySelector('#pedsa-stat-energy');
+        const elQueries = this.overlay.querySelector('#pedsa-stat-queries');
+        const elTime = this.overlay.querySelector('#pedsa-stat-time');
+
+        if (elNodes) elNodes.textContent = state.stats.nodes;
+        if (elEnergy) elEnergy.textContent = state.stats.avgEnergy.toFixed(2);
+        if (elQueries) elQueries.textContent = state.stats.activeQueries;
+        if (elTime) elTime.textContent = state.stats.storyTime;
+
+        // 更新日志喵~
+        const logContainer = this.overlay.querySelector('#pedsa-log-container');
+        if (logContainer && state.logs) {
+            logContainer.innerHTML = state.logs.map(log => `
+                <div class="flex gap-2">
+                    <span class="text-sky-500/50 text-[10px]">[${new Date(log.timestamp).toLocaleTimeString()}]</span>
+                    <span class="${log.type === 'error' ? 'text-red-400' : 'text-sky-200'}">${log.message}</span>
+                </div>
+            `).join('');
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // 更新事件列表喵~
+        const eventContainer = this.overlay.querySelector('#pedsa-event-list-container');
+        if (eventContainer && state.events && state.events.length > 0) {
+            eventContainer.innerHTML = state.events.map(ev => `
+                <div class="glass p-5 rounded-2xl border border-white/5 hover:border-sky-500/20 transition-all">
+                    <div class="flex justify-between items-start mb-3">
+                        <span class="px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-400 text-[10px] font-bold uppercase tracking-wider">${ev.type}</span>
+                        <span class="text-[10px] text-sky-500/40 mono">${new Date(ev.timestamp).toLocaleString()}</span>
+                    </div>
+                    <div class="text-sm text-sky-50 font-medium mb-2">${ev.summary || ev.content}</div>
+                    <div class="flex flex-wrap gap-2">
+                        ${(ev.keywords || []).map(k => `<span class="text-[9px] px-2 py-0.5 rounded bg-white/5 text-sky-300/60 border border-white/5">#${k}</span>`).join('')}
+                    </div>
+                </div>
+            `).reverse().join('');
+        }
+
+        this.state = state;
+    }
+
+    _renderGraph() {
+        const container = this.overlay.querySelector('#pedsa-graph-container');
+        if (!container || !window.ForceGraph || !this.state) return;
+
+        if (!this.graph) {
+            this.graph = window.ForceGraph()(container)
+                .backgroundColor('#020617')
+                .linkColor(() => 'rgba(56, 189, 248, 0.2)')
+                .nodeLabel('name')
+                .nodeColor(node => node.type === 'keyword' ? '#38bdf8' : '#f472b6')
+                .nodeVal(node => (node.energy || 1) * 2);
+        }
+
+        // 转换数据格式喵~
+        const graphData = {
+            nodes: this.state.graph.nodes,
+            links: this.state.graph.links
+        };
+        this.graph.graphData(graphData);
+    }
+}
+
+class PEDSA {
         constructor() {
-            console.log('[PEDSA] 正在初始化核心系统... 喵~');
+            console.log('[PEDSA] 正在初始化核心系统 (单页注入模式)... 喵~');
             this.engine = new GraphEngine();
             this.matcher = new KeywordMatcher();
             this.dashboard = new DashboardManager(this.engine, this.matcher);
             this.tavern = new TavernIntegration(this.engine, this.dashboard, this.matcher);
+            this.ui = new PEDSAUI(this);
+
             this.dashboard.onUpdate = (type, data) => {
                 this._broadcastSnapshot();
             };
             this.dashboard.onSettingsUpdate = (settings) => {
                 this.tavern.updateSettings(settings);
             };
-            this._initMessageBridge();
+
             this._initTavernEvents();
             setInterval(() => this._broadcastSnapshot(), 5000);
             this._injectExtensionPageButton();
             console.log('[PEDSA] 系统初始化完成！喵呜~');
         }
+
         _initTavernEvents() {
             const tryInit = () => {
                 if (typeof window === 'undefined' || !window.SillyTavern) return false;
@@ -1048,6 +1943,7 @@
                 }, 2000);
             }
         }
+
         _injectExtensionPageButton() {
             if (typeof document === 'undefined') return;
             console.log('[PEDSA] 启动扩展页注入监听... 喵~');
@@ -1163,122 +2059,15 @@
                 }
             }, 1000);
         }
+
         toggleDashboard() {
-            let overlay = document.getElementById('pedsa-overlay');
-            if (overlay) {
-                overlay.classList.toggle('hidden');
-                if (!overlay.classList.contains('hidden')) {
-                    this._broadcastSnapshot();
-                }
-            } else {
-                this._createDashboardOverlay();
-            }
+            this.ui.render();
         }
-        _createDashboardOverlay() {
-            const overlay = document.createElement('div');
-            overlay.id = 'pedsa-overlay';
-            overlay.style.cssText = `
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100vw;
-                height: 100vh;
-                background: rgba(0, 0, 0, 0.5);
-                backdrop-filter: blur(8px);
-                z-index: 9999;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            `;
-            overlay.onclick = (e) => {
-                if (e.target === overlay) {
-                    overlay.classList.add('hidden');
-                }
-            };
-            const container = document.createElement('div');
-            container.style.cssText = `
-                width: 90vw;
-                height: 90vh;
-                background: #0f172a;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 24px;
-                overflow: hidden;
-                position: relative;
-                box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            `;
-            const closeBtn = document.createElement('div');
-            closeBtn.innerHTML = '×';
-            closeBtn.style.cssText = `
-                position: absolute;
-                top: 20px;
-                right: 20px;
-                width: 40px;
-                height: 40px;
-                background: rgba(255, 255, 255, 0.1);
-                color: white;
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                cursor: pointer;
-                font-size: 24px;
-                z-index: 10;
-                transition: all 0.3s;
-            `;
-            closeBtn.onclick = () => overlay.classList.add('hidden');
-            closeBtn.onmouseenter = () => closeBtn.style.background = 'rgba(255, 255, 255, 0.2)';
-            closeBtn.onmouseleave = () => closeBtn.style.background = 'rgba(255, 255, 255, 0.1)';
-            const iframe = document.createElement('iframe');
-            this.dashboardIframe = iframe; 
-            // 使用在脚本加载时捕获到的全局路径喵~
-            iframe.src = globalBasePath + 'src/ui/dashboard.html';
-            iframe.style.cssText = `
-                width: 100%;
-                height: 100%;
-                border: none;
-            `;
-            container.appendChild(closeBtn);
-            container.appendChild(iframe);
-            overlay.appendChild(container);
-            document.body.appendChild(overlay);
-            iframe.onload = () => this._broadcastSnapshot();
-        }
-        _initMessageBridge() {
-            window.addEventListener('message', (event) => {
-                const { type, payload } = event.data;
-                if (type === 'SAVE_SETTINGS') {
-                    console.log('[PEDSA] 收到配置保存请求:', payload);
-                    this.dashboard.saveSettings(payload);
-                }
-                if (type === 'REQUEST_SNAPSHOT') {
-                    this._broadcastSnapshot();
-                }
-            });
-        }
+
         _broadcastSnapshot() {
-            const snapshot = this.dashboard.getSnapshot();
-            if (this.dashboardIframe && this.dashboardIframe.contentWindow) {
-                try {
-                    this.dashboardIframe.contentWindow.postMessage({
-                        type: 'UPDATE_SNAPSHOT',
-                        payload: snapshot
-                    }, '*');
-                    return; 
-                } catch (e) {
-                    console.warn('[PEDSA] 无法向主 iframe 发送消息:', e);
-                }
+            if (this.ui && this.ui.isInitialized) {
+                this.ui.updateUI();
             }
-            const iframes = document.querySelectorAll('iframe');
-            iframes.forEach(iframe => {
-                try {
-                    if (iframe.contentWindow) {
-                        iframe.contentWindow.postMessage({
-                            type: 'UPDATE_SNAPSHOT',
-                            payload: snapshot
-                        }, '*');
-                    }
-                } catch (e) {}
-            });
         }
     }
 
