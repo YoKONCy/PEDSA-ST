@@ -80,7 +80,7 @@ class DashboardManager {
                 try {
                     return JSON.parse(saved);
                 } catch (e) {
-                    console.error('[PEDSA] 加载配置失败:', e);
+                    console.error('[PEDSA-ST] 加载配置失败:', e);
                 }
             }
         }

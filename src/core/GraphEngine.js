@@ -20,6 +20,10 @@ class GraphEngine {
         this.affectiveIndex = new Map(); // emotionBit -> [nodeId]
         this.inDegrees = new Map();      // nodeId -> count (用于反向抑制)
 
+        // --- V3: 动态剪枝配置喵~ ---
+        this.MAX_EDGES_PER_NODE = 100;    // 每个节点最大边数
+        this.PRUNE_THRESHOLD = 0.1;       // 自动剪枝权重阈值
+
         // --- V3: 时间骨架 (Temporal Backbone) 喵~ ---
         this.eventChronology = [];       // 按顺序存储的事件 ID 列表
 
@@ -98,8 +102,6 @@ class GraphEngine {
         const toNode = this.nodes.get(toId);
         
         // 自动路由到正确的图谱层喵~
-        // 如果源和目标都是本体节点(0)，则进入 ontologyEdges
-        // 否则(涉及事件节点)进入 memoryEdges
         const targetMap = (fromNode?.nodeType === 0 && toNode?.nodeType === 0) 
             ? this.ontologyEdges 
             : this.memoryEdges;
@@ -119,9 +121,55 @@ class GraphEngine {
                 existingEdge.type = type;
             }
         } else {
+            // 动态剪枝：如果边数超限，移除权重最低的边喵~
+            if (edges.length >= this.MAX_EDGES_PER_NODE) {
+                let minIdx = -1;
+                let minWeight = Infinity;
+                for (let i = 0; i < edges.length; i++) {
+                    if (edges[i].weight < minWeight) {
+                        minWeight = edges[i].weight;
+                        minIdx = i;
+                    }
+                }
+                if (minIdx !== -1) {
+                    const removed = edges.splice(minIdx, 1)[0];
+                    // 维护入度
+                    this.inDegrees.set(removed.toId, Math.max(0, (this.inDegrees.get(removed.toId) || 1) - 1));
+                }
+            }
+
             edges.push({ toId, weight, type });
             // 维护入度统计喵~
             this.inDegrees.set(toId, (this.inDegrees.get(toId) || 0) + 1);
+        }
+    }
+
+    /**
+     * 全局动态剪枝喵~
+     * 移除所有权重低于阈值的弱关联。
+     */
+    pruneEdges() {
+        const pruneFromMap = (map) => {
+            let removedCount = 0;
+            for (const [fromId, edges] of map.entries()) {
+                const filtered = edges.filter(e => {
+                    if (e.weight < this.PRUNE_THRESHOLD) {
+                        this.inDegrees.set(e.toId, Math.max(0, (this.inDegrees.get(e.toId) || 1) - 1));
+                        removedCount++;
+                        return false;
+                    }
+                    return true;
+                });
+                map.set(fromId, filtered);
+            }
+            return removedCount;
+        };
+
+        const removedOntology = pruneFromMap(this.ontologyEdges);
+        const removedMemory = pruneFromMap(this.memoryEdges);
+        
+        if (removedOntology + removedMemory > 0) {
+            console.log(`[PEDSA-ST] 动态剪枝完成，共移除 ${removedOntology + removedMemory} 条弱关联边喵~`);
         }
     }
 
@@ -281,44 +329,57 @@ class GraphEngine {
             if (node) node.energy = energy;
         }
 
-        // --- Step 5: 结果整合与局部 SimHash 细化 ---
-        return Array.from(this.nodes.values())
-            .filter(node => node.nodeType === 1 && node.energy > 0)
-            .map(node => {
-                // 如果有 Query 指纹，进行最终的多模态共鸣修正 (Rust 版 V3 逻辑)
-                if (queryHashObj && node.simhash) {
-                    const nodeHash = new SimHash(node.simhash);
-                    
-                    // 1. 语义共鸣 (基础)
-                    const semanticSim = queryHashObj.similarityWeighted(nodeHash, SimHash.MASKS.SEMANTIC);
-                    let resonanceBoost = semanticSim * 0.6; // 显著提升语义共鸣权重
+        // --- Step 5: 结果整合与多维对齐重排序 (Multi-modal Refinement) ---
+        const candidates = Array.from(this.nodes.values())
+            .filter(node => node.nodeType === 1 && node.energy > 0);
 
-                    // 2. 时间共振 (Temporal Resonance)
-                    if ((queryHashObj.value & SimHash.MASKS.TEMPORAL) !== 0n) {
-                        const temporalSim = queryHashObj.similarityWeighted(nodeHash, SimHash.MASKS.TEMPORAL);
-                        // 时空匹配给予高权重 (0.5)，模拟“瞬间回忆”
-                        resonanceBoost += temporalSim * 0.5;
-                    }
+        // 如果没有候选者，直接返回空喵~
+        if (candidates.length === 0) return [];
 
-                    // 3. 情感共鸣 (Affective Resonance) - 位运算
-                    if ((queryHashObj.value & SimHash.MASKS.AFFECTIVE) !== 0n) {
-                        if (SimHash.bitwiseMatch(queryHashObj, nodeHash, SimHash.MASKS.AFFECTIVE)) {
-                            resonanceBoost += 0.6; // 只要有任何共同情感位被激活，就产生强烈共鸣
-                        }
-                    }
+        // 仅对 Top 50 候选者进行精细重排序 (按初始能量排序)
+        candidates.sort((a, b) => b.energy - a.energy);
+        const topK = candidates.slice(0, 50);
+        const others = candidates.slice(50);
 
-                    // 4. 类型对齐 (Entity Type Alignment)
-                    if ((queryHashObj.value & SimHash.MASKS.ENTITY) !== 0n) {
-                        const typeSim = queryHashObj.similarityWeighted(nodeHash, SimHash.MASKS.ENTITY);
-                        // 类型匹配极其重要 (0.8)，因为类型不对通常意味着完全无关
-                        resonanceBoost += typeSim * 0.8;
-                    }
+        const refinedTopK = topK.map(node => {
+            // 如果有 Query 指纹，进行多维对齐修正 (Rust 版 V3 逻辑)
+            if (queryHashObj && node.simhash) {
+                const nodeHash = new SimHash(node.simhash);
+                let resonanceBoost = 0;
 
-                    node.energy += resonanceBoost;
+                // 1. 语义共鸣 (基础)
+                const semanticSim = queryHashObj.similarityWeighted(nodeHash, SimHash.MASKS.SEMANTIC);
+                resonanceBoost += semanticSim * 0.6; // 显著提升语义共鸣权重
+
+                // 2. 时间共振 (Temporal Resonance)
+                if ((queryHashObj.value & SimHash.MASKS.TEMPORAL) !== 0n) {
+                    const temporalSim = queryHashObj.similarityWeighted(nodeHash, SimHash.MASKS.TEMPORAL);
+                    // 时空匹配给予高权重 (0.5)，模拟“瞬间回忆”
+                    resonanceBoost += temporalSim * 0.5;
                 }
-                return node;
-            })
-            .sort((a, b) => b.energy - a.energy);
+
+                // 3. 情感共鸣 (Affective Resonance) - 位运算
+                if ((queryHashObj.value & SimHash.MASKS.AFFECTIVE) !== 0n) {
+                    if (SimHash.bitwiseMatch(queryHashObj, nodeHash, SimHash.MASKS.AFFECTIVE)) {
+                        resonanceBoost += 0.6; // 只要有任何共同情感位被激活，就产生强烈共鸣
+                    }
+                }
+
+                // 4. 类型对齐 (Entity Type Alignment)
+                if ((queryHashObj.value & SimHash.MASKS.ENTITY) !== 0n) {
+                    const typeSim = queryHashObj.similarityWeighted(nodeHash, SimHash.MASKS.ENTITY);
+                    // 类型匹配极其重要 (0.8)，因为类型不对通常意味着完全无关
+                    resonanceBoost += typeSim * 0.8;
+                }
+
+                // 将共鸣增益融入最终能量
+                node.energy = (node.energy * 0.7) + (resonanceBoost * 0.3);
+            }
+            return node;
+        });
+
+        // 重新排序并合并
+        return [...refinedTopK, ...others].sort((a, b) => b.energy - a.energy);
     }
 
     /**

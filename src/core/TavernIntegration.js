@@ -86,7 +86,7 @@ class TavernIntegration {
                 this.dashboard.log('INF', '[TavernIntegration] 酒馆事件监听已启动喵~');
                 return true;
             } catch (err) {
-                console.error('[PEDSA] 初始化酒馆事件监听失败:', err);
+                console.error('[PEDSA-ST] 初始化酒馆事件监听失败:', err);
                 return false;
             }
         };
@@ -99,7 +99,7 @@ class TavernIntegration {
                 if (tryInit() || retries > 10) {
                     clearInterval(interval);
                     if (retries > 10) {
-                        console.warn('[PEDSA] 酒馆事件监听初始化超时，请检查 SillyTavern 环境喵~');
+                        console.warn('[PEDSA-ST] 酒馆事件监听初始化超时，请检查 SillyTavern 环境喵~');
                     }
                 }
             }, 1000);
@@ -118,7 +118,7 @@ class TavernIntegration {
 
         // --- PEDSA 实时检索逻辑 (仅当用户说话时) ---
         if (role === 'user') {
-            this.dashboard.log('INF', `[PEDSA] 正在检索共鸣记忆: "${content.substring(0, 20)}..."`);
+            this.dashboard.log('INF', `[PEDSA-ST] 正在检索共鸣记忆: "${content.substring(0, 20)}..."`);
             
             // 1. 产生共鸣指纹 (Query SimHash)
             const querySimHash = this.queryGenerator.generate(content, this.lastContext);
@@ -134,7 +134,7 @@ class TavernIntegration {
 
             if (activatedEvents.length > 0) {
                 const topEvent = activatedEvents[0];
-                this.dashboard.log('INF', `[PEDSA] 唤醒记忆: "${topEvent.name}" (共鸣分: ${topEvent.energy.toFixed(2)})`);
+                this.dashboard.log('INF', `[PEDSA-ST] 唤醒记忆: "${topEvent.name}" (共鸣分: ${topEvent.energy.toFixed(2)})`);
                 
                 // 更新仪表盘的共鸣维度数据喵~
                 this.dashboard.updateResonance(querySimHash.value, topEvent.simhash);
@@ -214,6 +214,9 @@ class TavernIntegration {
                     time: result.new_event.time, // 这里存储的是准确的故事天数整数喵！
                     features: result.new_event.features
                 });
+
+                // 4. 触发动态剪枝 (防止图谱无限膨胀) 喵~
+                this.engine.pruneEdges();
 
                 this.dashboard.log('INF', `[TavernIntegration] 图谱维护完成: ${result.new_event.summary} (剧情时钟: ${this.engine.storyTime})`);
             }
