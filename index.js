@@ -25,18 +25,24 @@
     // 在脚本加载时立即获取 basePath，因为 document.currentScript 在异步调用时会变成 null 喵~
     const scriptPath = document.currentScript ? document.currentScript.src : '';
     let globalBasePath = '/scripts/extensions/PEDSA-JS/'; // 默认回退路径
-    if (scriptPath.includes('/scripts/extensions/')) {
-        globalBasePath = scriptPath.substring(0, scriptPath.lastIndexOf('/') + 1);
-        console.log('[PEDSA] 成功自动识别插件根目录:', globalBasePath);
-    } else {
-        // 尝试从所有 script 标签中寻找
-        const allScripts = Array.from(document.querySelectorAll('script'));
-        const pedsaScript = allScripts.find(s => s.src && (s.src.includes('PEDSA-JS/index.js') || s.src.includes('PEDSA-ST/index.js')));
-        if (pedsaScript) {
-            globalBasePath = pedsaScript.src.substring(0, pedsaScript.src.lastIndexOf('/') + 1);
-            console.log('[PEDSA] 从 script 标签列表找到插件根目录:', globalBasePath);
+    
+    // 检查是否已经在 iframe 中运行，防止套娃喵~
+    const isInIframe = window.self !== window.top;
+    
+    if (!isInIframe) {
+        if (scriptPath.includes('/scripts/extensions/')) {
+            globalBasePath = scriptPath.substring(0, scriptPath.lastIndexOf('/') + 1);
+            console.log('[PEDSA] 成功自动识别插件根目录:', globalBasePath);
         } else {
-            console.warn('[PEDSA] 无法自动识别根目录，使用回退路径:', globalBasePath);
+            // 尝试从所有 script 标签中寻找
+            const allScripts = Array.from(document.querySelectorAll('script'));
+            const pedsaScript = allScripts.find(s => s.src && (s.src.includes('PEDSA-JS/index.js') || s.src.includes('PEDSA-ST/index.js')));
+            if (pedsaScript) {
+                globalBasePath = pedsaScript.src.substring(0, pedsaScript.src.lastIndexOf('/') + 1);
+                console.log('[PEDSA] 从 script 标签列表找到插件根目录:', globalBasePath);
+            } else {
+                console.warn('[PEDSA] 无法自动识别根目录，使用回退路径:', globalBasePath);
+            }
         }
     }
 
@@ -1267,16 +1273,16 @@
 
     // 初始化入口
     if (typeof document !== 'undefined') {
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => {
-                if (typeof window !== 'undefined' && !window.pedsa) {
-                    window.pedsa = new PEDSA();
-                }
-            });
-        } else {
-            if (typeof window !== 'undefined' && !window.pedsa) {
+        const runInit = () => {
+            if (typeof window !== 'undefined' && !window.pedsa && !isInIframe) {
                 window.pedsa = new PEDSA();
             }
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', runInit);
+        } else {
+            runInit();
         }
     }
 
