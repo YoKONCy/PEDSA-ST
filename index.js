@@ -1,13 +1,30 @@
 /**
  * PEDSA-JS 插件核心入口
- * 
- * 初始化所有组件并处理 SillyTavern 与 Dashboard 之间的通信。
  */
 
-const GraphEngine = require('./core/GraphEngine');
-const KeywordMatcher = require('./core/KeywordMatcher');
-const DashboardManager = require('./core/DashboardManager');
-const TavernIntegration = require('./core/TavernIntegration');
+console.log('====================================');
+console.log('🐈 [PEDSA] 核心脚本加载成功！');
+console.log('====================================');
+
+
+// 检查环境
+if (typeof window !== 'undefined') {
+    console.log('[PEDSA] 当前运行环境: 浏览器喵~');
+}
+
+try {
+    // 尝试加载依赖
+    // 注意：如果 require 在浏览器中报错，我们会在这里捕获它
+    const GraphEngine = require('./src/core/GraphEngine');
+    const KeywordMatcher = require('./src/core/KeywordMatcher');
+    const DashboardManager = require('./src/core/DashboardManager');
+    const TavernIntegration = require('./src/core/TavernIntegration');
+    
+    console.log('[PEDSA] 依赖加载成功喵~');
+} catch (e) {
+    console.error('[PEDSA] 依赖加载失败！可能是 require 不被支持喵:', e);
+}
+
 
 class PEDSA {
     constructor() {
@@ -79,25 +96,53 @@ class PEDSA {
     _injectExtensionPageButton() {
         if (typeof document === 'undefined') return;
 
-        const injectAction = () => {
-            // 尝试在多个可能的酒馆容器中寻找入口喵~
-            const container = document.querySelector('#extensions_settings') || 
-                             document.querySelector('#extensions-settings') ||
-                             document.querySelector('#extensions_list') ||
-                             document.querySelector('.extensions-settings') ||
-                             document.querySelector('#extension_settings'); // 增加一个可能的 ID
-            
-            if (!container) return false;
+        console.log('[PEDSA] 启动扩展页注入监听... 喵~');
 
-            // 如果已经存在了就不再重复注入喵~
+        const injectAction = () => {
+            // 检查是否已经存在了就不再重复注入喵~
             if (document.getElementById('pedsa-extension-btn')) return true;
 
-            console.log('[PEDSA] 发现扩展页容器，正在注入按钮... 喵~');
+            // 调试：打印出当前页面上所有的 ID，帮助定位容器
+            // console.log('[PEDSA] 当前页面所有 ID:', Array.from(document.querySelectorAll('[id]')).map(el => el.id));
+
+            // 尝试在多个可能的酒馆容器中寻找入口喵~
+            let container = document.querySelector('#extensions_settings') || 
+                             document.querySelector('#extensions-settings') ||
+                             document.querySelector('#extensions_list') ||
+                             document.querySelector('#extensions-container') ||
+                             document.querySelector('.extensions-settings') ||
+                             document.querySelector('#extension_settings') ||
+                             document.querySelector('#extensionsMenu') ||
+                             document.querySelector('.extension-list') ||
+                             document.querySelector('#extensions_view');
+            
+            // 兜底方案：通过文本内容寻找可能是扩展面板的容器
+            if (!container) {
+                const headers = Array.from(document.querySelectorAll('h3, h4, .panel-header'));
+                const extHeader = headers.find(h => h.innerText.includes('Extensions') || h.innerText.includes('扩展'));
+                if (extHeader && extHeader.parentElement) {
+                    container = extHeader.parentElement;
+                }
+            }
+
+            
+            if (!container) {
+                // 如果没找到，我们每 10 次尝试打印一次，避免刷屏喵~
+                this._injectAttempts = (this._injectAttempts || 0) + 1;
+                if (this._injectAttempts % 10 === 0) {
+                    console.log('[PEDSA] 正在寻找扩展页容器... 目前还没找到喵~ (已尝试 ' + this._injectAttempts + ' 次)');
+                }
+                return false;
+            }
+
+            console.log('[PEDSA] 发现扩展页容器:', container.id || container.className || 'unknown', '正在注入按钮... 喵~');
+
 
             // 创建扩展页入口
             const entry = document.createElement('div');
             entry.id = 'pedsa-extension-btn';
             entry.className = 'extension_button interactable';
+            entry.setAttribute('role', 'button');
             entry.style.cssText = `
                 display: flex;
                 align-items: center;
@@ -109,6 +154,8 @@ class PEDSA {
                 cursor: pointer;
                 transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
                 width: calc(100% - 32px);
+                position: relative;
+                z-index: 10;
             `;
 
             // 悬浮效果
@@ -164,6 +211,7 @@ class PEDSA {
             entry.appendChild(arrow);
             
             entry.onclick = (e) => {
+                console.log('[PEDSA] 按钮被点击了喵！');
                 e.preventDefault();
                 e.stopPropagation();
                 this.toggleDashboard();
@@ -178,24 +226,25 @@ class PEDSA {
         // 1. 立即尝试一次
         injectAction();
 
-        // 2. 使用 MutationObserver 监听 DOM 变化
-        const observer = new MutationObserver(() => {
+        // 2. 使用 MutationObserver 监听整个文档，因为酒馆是单页应用喵~
+        const observer = new MutationObserver((mutations) => {
             if (!document.getElementById('pedsa-extension-btn')) {
+                // 如果按钮不见了，且有新节点加入，尝试重新注入
                 injectAction();
             }
         });
 
-        observer.observe(document.body, {
+        observer.observe(document.documentElement, {
             childList: true,
             subtree: true
         });
 
-        // 3. 定时器兜底
+        // 3. 定时器兜底（增加频率，缩短响应时间）
         setInterval(() => {
             if (!document.getElementById('pedsa-extension-btn')) {
                 injectAction();
             }
-        }, 3000);
+        }, 1000);
     }
 
     /**
