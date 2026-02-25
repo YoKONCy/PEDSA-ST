@@ -18,33 +18,44 @@
  */
 
 (function() {
+    // 检查是否已经在 iframe 中运行，防止套娃喵~
+    const isInIframe = window.self !== window.top;
+    if (isInIframe) {
+        // 如果是在 iframe 中，通常是因为 dashboard.html 加载了 index.js
+        // 我们不应该在这里执行任何初始化逻辑喵~
+        return;
+    }
+
     console.log('====================================');
     console.log('🐈 [PEDSA] 核心脚本加载成功！(Bundled)');
     console.log('====================================');
 
-    // 在脚本加载时立即获取 basePath，因为 document.currentScript 在异步调用时会变成 null 喵~
-    const scriptPath = document.currentScript ? document.currentScript.src : '';
-    let globalBasePath = '/scripts/extensions/PEDSA-JS/'; // 默认回退路径
-    
-    // 检查是否已经在 iframe 中运行，防止套娃喵~
-    const isInIframe = window.self !== window.top;
-    
-    if (!isInIframe) {
-        if (scriptPath.includes('/scripts/extensions/')) {
-            globalBasePath = scriptPath.substring(0, scriptPath.lastIndexOf('/') + 1);
-            console.log('[PEDSA] 成功自动识别插件根目录:', globalBasePath);
-        } else {
-            // 尝试从所有 script 标签中寻找
-            const allScripts = Array.from(document.querySelectorAll('script'));
-            const pedsaScript = allScripts.find(s => s.src && (s.src.includes('PEDSA-JS/index.js') || s.src.includes('PEDSA-ST/index.js')));
-            if (pedsaScript) {
-                globalBasePath = pedsaScript.src.substring(0, pedsaScript.src.lastIndexOf('/') + 1);
-                console.log('[PEDSA] 从 script 标签列表找到插件根目录:', globalBasePath);
-            } else {
-                console.warn('[PEDSA] 无法自动识别根目录，使用回退路径:', globalBasePath);
+    // 路径识别逻辑喵~
+    const getBasePath = () => {
+        // 1. 尝试使用 currentScript
+        if (document.currentScript && document.currentScript.src) {
+            const src = document.currentScript.src;
+            const path = src.substring(0, src.lastIndexOf('/') + 1);
+            console.log('[PEDSA] 通过 currentScript 识别路径:', path);
+            return path;
+        }
+        // 2. 扫描所有 script 标签
+        const scripts = document.getElementsByTagName('script');
+        for (let i = scripts.length - 1; i >= 0; i--) {
+            const src = scripts[i].src;
+            if (src && (src.includes('PEDSA') || src.includes('index.js')) && src.includes('/extensions/')) {
+                const path = src.substring(0, src.lastIndexOf('/') + 1);
+                console.log('[PEDSA] 通过扫描 script 标签识别路径:', path);
+                return path;
             }
         }
-    }
+        // 3. 最后的保底路径（SillyTavern 插件通常所在的路径）
+        console.warn('[PEDSA] 路径识别失败，使用保底路径喵~');
+        return '/extensions/PEDSA-JS/';
+    };
+
+    const globalBasePath = getBasePath();
+    console.log('[PEDSA] 最终确定的根目录:', globalBasePath);
 
     // ==========================================
     // 1. SimHash.js
@@ -1274,7 +1285,7 @@
     // 初始化入口
     if (typeof document !== 'undefined') {
         const runInit = () => {
-            if (typeof window !== 'undefined' && !window.pedsa && !isInIframe) {
+            if (typeof window !== 'undefined' && !window.pedsa) {
                 window.pedsa = new PEDSA();
             }
         };
