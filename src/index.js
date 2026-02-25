@@ -79,49 +79,56 @@ class PEDSA {
     _injectExtensionPageButton() {
         if (typeof document === 'undefined') return;
 
-        const tryInject = () => {
-            // 尝试在扩展设置面板中寻找容器喵~
+        const injectAction = () => {
+            // 尝试在多个可能的酒馆容器中寻找入口喵~
             const container = document.querySelector('#extensions_settings') || 
                              document.querySelector('#extensions-settings') ||
-                             document.querySelector('#extensions_list');
+                             document.querySelector('#extensions_list') ||
+                             document.querySelector('.extensions-settings');
             
             if (!container) return false;
 
-            // 检查是否已经存在
+            // 如果已经存在了就不再重复注入喵~
             if (document.getElementById('pedsa-extension-btn')) return true;
+
+            console.log('[PEDSA] 发现扩展页容器，正在注入按钮... 喵~');
 
             // 创建扩展页入口
             const entry = document.createElement('div');
             entry.id = 'pedsa-extension-btn';
-            entry.className = 'extension_button interactable'; // 使用酒馆标准交互类名
+            entry.className = 'extension_button interactable';
             entry.style.cssText = `
                 display: flex;
                 align-items: center;
                 padding: 12px 16px;
-                margin: 8px 0;
+                margin: 10px 0;
                 background: rgba(56, 189, 248, 0.1);
                 border: 1px solid rgba(56, 189, 248, 0.2);
                 border-radius: 12px;
                 cursor: pointer;
-                transition: all 0.2s ease;
+                transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                width: calc(100% - 32px);
             `;
 
             // 悬浮效果
             entry.onmouseenter = () => {
-                entry.style.background = 'rgba(56, 189, 248, 0.2)';
-                entry.style.transform = 'translateY(-1px)';
+                entry.style.background = 'rgba(56, 189, 248, 0.15)';
+                entry.style.borderColor = 'rgba(56, 189, 248, 0.4)';
+                entry.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
             };
             entry.onmouseleave = () => {
                 entry.style.background = 'rgba(56, 189, 248, 0.1)';
-                entry.style.transform = 'translateY(0)';
+                entry.style.borderColor = 'rgba(56, 189, 248, 0.2)';
+                entry.style.boxShadow = 'none';
             };
 
             const icon = document.createElement('i');
             icon.className = 'fa-solid fa-brain fa-fw';
             icon.style.cssText = `
-                margin-right: 12px;
+                margin-right: 15px;
                 color: #38bdf8;
-                font-size: 1.2em;
+                font-size: 1.4em;
+                filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.5));
             `;
 
             const textContainer = document.createElement('div');
@@ -130,12 +137,14 @@ class PEDSA {
             const label = document.createElement('div');
             label.innerText = 'PEDSA 记忆拓扑';
             label.style.fontWeight = 'bold';
-            label.style.color = '#e2e8f0';
+            label.style.color = '#f8fafc';
+            label.style.fontSize = '1.05em';
 
             const desc = document.createElement('div');
-            desc.innerText = '查看实时激活扩散与语义共鸣图谱喵~';
+            desc.innerText = '实时扩散渲染 & 语义共鸣分析喵~';
             desc.style.fontSize = '0.85em';
             desc.style.color = '#94a3b8';
+            desc.style.marginTop = '2px';
 
             textContainer.appendChild(label);
             textContainer.appendChild(desc);
@@ -143,20 +152,48 @@ class PEDSA {
             entry.appendChild(icon);
             entry.appendChild(textContainer);
             
-            entry.onclick = () => this.toggleDashboard();
+            // 右侧添加一个箭头图标喵~
+            const arrow = document.createElement('i');
+            arrow.className = 'fa-solid fa-chevron-right';
+            arrow.style.cssText = `
+                color: #475569;
+                font-size: 0.9em;
+                margin-left: 10px;
+            `;
+            entry.appendChild(arrow);
+            
+            entry.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleDashboard();
+            };
 
-            // 插入到容器末尾
-            container.appendChild(entry);
-            console.log('[PEDSA] 扩展页按钮注入成功！喵~');
+            // 使用 prepend 确保它出现在列表顶部，更容易被发现喵！
+            container.prepend(entry);
             return true;
         };
 
-        // 如果容器还没加载好，就每隔 2 秒重试一次喵~
-        if (!tryInject()) {
-            const interval = setInterval(() => {
-                if (tryInject()) clearInterval(interval);
-            }, 2000);
-        }
+        // 1. 立即尝试一次
+        injectAction();
+
+        // 2. 使用 MutationObserver 监听 DOM 变化，防止酒馆重新渲染导致按钮消失喵~
+        const observer = new MutationObserver(() => {
+            if (!document.getElementById('pedsa-extension-btn')) {
+                injectAction();
+            }
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        // 3. 定时器兜底（防止 Observer 在某些边缘情况下失效）
+        setInterval(() => {
+            if (!document.getElementById('pedsa-extension-btn')) {
+                injectAction();
+            }
+        }, 3000);
     }
 
     /**
