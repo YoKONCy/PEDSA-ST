@@ -22,6 +22,24 @@
     console.log('🐈 [PEDSA] 核心脚本加载成功！(Bundled)');
     console.log('====================================');
 
+    // 在脚本加载时立即获取 basePath，因为 document.currentScript 在异步调用时会变成 null 喵~
+    const scriptPath = document.currentScript ? document.currentScript.src : '';
+    let globalBasePath = '/scripts/extensions/PEDSA-JS/'; // 默认回退路径
+    if (scriptPath.includes('/scripts/extensions/')) {
+        globalBasePath = scriptPath.substring(0, scriptPath.lastIndexOf('/') + 1);
+        console.log('[PEDSA] 成功自动识别插件根目录:', globalBasePath);
+    } else {
+        // 尝试从所有 script 标签中寻找
+        const allScripts = Array.from(document.querySelectorAll('script'));
+        const pedsaScript = allScripts.find(s => s.src && (s.src.includes('PEDSA-JS/index.js') || s.src.includes('PEDSA-ST/index.js')));
+        if (pedsaScript) {
+            globalBasePath = pedsaScript.src.substring(0, pedsaScript.src.lastIndexOf('/') + 1);
+            console.log('[PEDSA] 从 script 标签列表找到插件根目录:', globalBasePath);
+        } else {
+            console.warn('[PEDSA] 无法自动识别根目录，使用回退路径:', globalBasePath);
+        }
+    }
+
     // ==========================================
     // 1. SimHash.js
     // ==========================================
@@ -1195,12 +1213,8 @@
             closeBtn.onmouseleave = () => closeBtn.style.background = 'rgba(255, 255, 255, 0.1)';
             const iframe = document.createElement('iframe');
             this.dashboardIframe = iframe; 
-            const scriptPath = document.currentScript ? document.currentScript.src : '';
-            let basePath = '/extensions/PEDSA-JS/';
-            if (scriptPath.includes('/extensions/')) {
-                 basePath = scriptPath.substring(0, scriptPath.lastIndexOf('/') + 1);
-            }
-            iframe.src = basePath + 'src/ui/dashboard.html';
+            // 使用在脚本加载时捕获到的全局路径喵~
+            iframe.src = globalBasePath + 'src/ui/dashboard.html';
             iframe.style.cssText = `
                 width: 100%;
                 height: 100%;
