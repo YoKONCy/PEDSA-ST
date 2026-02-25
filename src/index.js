@@ -38,8 +38,8 @@ class PEDSA {
         // 7. 定时推送快照 (保持 UI 活跃)
         setInterval(() => this._broadcastSnapshot(), 5000);
 
-        // 8. 注入顶栏按钮喵~
-        this._createTopBarButton();
+        // 8. 注入扩展页按钮喵~
+        this._injectExtensionPageButton();
 
         console.log('[PEDSA] 系统初始化完成！喵呜~');
     }
@@ -74,58 +74,128 @@ class PEDSA {
     }
 
     /**
-     * 创建顶栏按钮入口（模仿 Engram 的 drawer 结构）
-     * 参考 Engram-master/src/integrations/tavern/bridge.ts 中的 createTopBarButton
+     * 注入按钮到酒馆扩展页
      */
-    _createTopBarButton() {
+    _injectExtensionPageButton() {
         if (typeof document === 'undefined') return;
 
-        const holder = document.querySelector('#top-settings-holder');
-        const wiButton = document.querySelector('#WI-SP-button');
+        const injectAction = () => {
+            // 尝试在多个可能的酒馆容器中寻找入口喵~
+            const container = document.querySelector('#extensions_settings') || 
+                             document.querySelector('#extensions-settings') ||
+                             document.querySelector('#extensions_list') ||
+                             document.querySelector('.extensions-settings') ||
+                             document.querySelector('#extension_settings'); // 增加一个可能的 ID
+            
+            if (!container) return false;
 
-        if (!holder) {
-            // DOM 还没加载好，延迟重试喵~
-            setTimeout(() => this._createTopBarButton(), 1000);
-            return;
-        }
+            // 如果已经存在了就不再重复注入喵~
+            if (document.getElementById('pedsa-extension-btn')) return true;
 
-        // 如果已经存在就不重复注入
-        if (document.getElementById('pedsa-drawer')) {
-            console.log('[PEDSA] 顶栏按钮已存在，跳过注入');
-            return;
-        }
+            console.log('[PEDSA] 发现扩展页容器，正在注入按钮... 喵~');
 
-        // 创建 drawer 容器（模仿酒馆结构）
-        const drawer = document.createElement('div');
-        drawer.id = 'pedsa-drawer';
-        drawer.className = 'drawer';
+            // 创建扩展页入口
+            const entry = document.createElement('div');
+            entry.id = 'pedsa-extension-btn';
+            entry.className = 'extension_button interactable';
+            entry.style.cssText = `
+                display: flex;
+                align-items: center;
+                padding: 12px 16px;
+                margin: 10px 0;
+                background: rgba(56, 189, 248, 0.1);
+                border: 1px solid rgba(56, 189, 248, 0.2);
+                border-radius: 12px;
+                cursor: pointer;
+                transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                width: calc(100% - 32px);
+            `;
 
-        // drawer-toggle 包装器
-        const toggle = document.createElement('div');
-        toggle.className = 'drawer-toggle drawer-header';
+            // 悬浮效果
+            entry.onmouseenter = () => {
+                entry.style.background = 'rgba(56, 189, 248, 0.15)';
+                entry.style.borderColor = 'rgba(56, 189, 248, 0.4)';
+                entry.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
+            };
+            entry.onmouseleave = () => {
+                entry.style.background = 'rgba(56, 189, 248, 0.1)';
+                entry.style.borderColor = 'rgba(56, 189, 248, 0.2)';
+                entry.style.boxShadow = 'none';
+            };
 
-        // drawer-icon 图标
-        const icon = document.createElement('div');
-        icon.id = 'pedsa-drawer-icon';
-        icon.className = 'drawer-icon fa-solid fa-brain fa-fw closedIcon';
-        icon.title = 'PEDSA - 记忆拓扑操作系统';
-        icon.setAttribute('data-i18n', '[title]PEDSA - Memory Topology');
+            const icon = document.createElement('i');
+            icon.className = 'fa-solid fa-brain fa-fw';
+            icon.style.cssText = `
+                margin-right: 15px;
+                color: #38bdf8;
+                font-size: 1.4em;
+                filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.5));
+            `;
 
-        // 点击切换面板
-        icon.addEventListener('click', () => this.toggleDashboard());
+            const textContainer = document.createElement('div');
+            textContainer.style.flex = '1';
 
-        // 组装结构
-        toggle.appendChild(icon);
-        drawer.appendChild(toggle);
+            const label = document.createElement('div');
+            label.innerText = 'PEDSA 记忆拓扑';
+            label.style.fontWeight = 'bold';
+            label.style.color = '#f8fafc';
+            label.style.fontSize = '1.05em';
 
-        // 插入到 WI-SP-button 之前，如果找不到则添加到末尾
-        if (wiButton) {
-            holder.insertBefore(drawer, wiButton);
-        } else {
-            holder.appendChild(drawer);
-        }
+            const desc = document.createElement('div');
+            desc.innerText = '实时扩散渲染 & 语义共鸣分析喵~';
+            desc.style.fontSize = '0.85em';
+            desc.style.color = '#94a3b8';
+            desc.style.marginTop = '2px';
 
-        console.log('[PEDSA] 顶栏按钮注入成功！喵~');
+            textContainer.appendChild(label);
+            textContainer.appendChild(desc);
+
+            entry.appendChild(icon);
+            entry.appendChild(textContainer);
+            
+            // 右侧添加一个箭头图标喵~
+            const arrow = document.createElement('i');
+            arrow.className = 'fa-solid fa-chevron-right';
+            arrow.style.cssText = `
+                color: #475569;
+                font-size: 0.9em;
+                margin-left: 10px;
+            `;
+            entry.appendChild(arrow);
+            
+            entry.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleDashboard();
+            };
+
+            // 使用 prepend 确保它出现在列表顶部
+            container.prepend(entry);
+            console.log('[PEDSA] 扩展页按钮注入成功！喵~');
+            return true;
+        };
+
+        // 1. 立即尝试一次
+        injectAction();
+
+        // 2. 使用 MutationObserver 监听 DOM 变化
+        const observer = new MutationObserver(() => {
+            if (!document.getElementById('pedsa-extension-btn')) {
+                injectAction();
+            }
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        // 3. 定时器兜底
+        setInterval(() => {
+            if (!document.getElementById('pedsa-extension-btn')) {
+                injectAction();
+            }
+        }, 3000);
     }
 
     /**
