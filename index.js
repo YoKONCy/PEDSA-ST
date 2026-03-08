@@ -180,6 +180,40 @@
                 #pedsa-overlay .view-section.hidden { display: none; opacity: 0; transform: translateY(10px); }
                 #pedsa-overlay .view-section.active { display: block; opacity: 1; transform: translateY(0); }
 
+                /* 移动端侧边栏动画喵~ */
+                @media (max-width: 768px) {
+                    #pedsa-overlay .sidebar {
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        height: 100%;
+                        z-index: 50;
+                        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                        transform: translateX(-100%);
+                    }
+                    #pedsa-overlay .sidebar.sidebar-open {
+                        transform: translateX(0);
+                        box-shadow: 20px 0 50px rgba(0, 0, 0, 0.5);
+                    }
+                    #pedsa-overlay .sidebar-overlay {
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        width: 100vw;
+                        height: 100vh;
+                        background: rgba(0, 0, 0, 0.4);
+                        backdrop-filter: blur(4px);
+                        z-index: 40;
+                        opacity: 0;
+                        pointer-events: none;
+                        transition: opacity 0.3s ease;
+                    }
+                    #pedsa-overlay .sidebar-overlay.active {
+                        opacity: 1;
+                        pointer-events: auto;
+                    }
+                }
+
                 /* 导航项样式优化 */
                 #pedsa-overlay .nav-item {
                     cursor: pointer;
@@ -326,14 +360,23 @@
 
             // HTML 模板注入
             overlay.innerHTML = `
+                <!-- 侧边栏遮罩喵~ -->
+                <div class="sidebar-overlay"></div>
+
                 <!-- 侧边栏导航 -->
                 <aside class="w-72 h-full glass-dark border-r border-white/5 flex flex-col z-20 sidebar">
                     <div class="p-8">
-                        <div class="flex items-center gap-3 mb-2">
-                            <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center shadow-[0_0_20px_rgba(56,189,248,0.4)] energy-pulse">
-                                <i data-lucide="brain-circuit" class="text-white w-6 h-6"></i>
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center shadow-[0_0_20px_rgba(56,189,248,0.4)] energy-pulse">
+                                    <i data-lucide="brain-circuit" class="text-white w-6 h-6"></i>
+                                </div>
+                                <h1 class="text-2xl font-black tracking-tighter text-white">PEDSA <span class="text-sky-400">ST</span></h1>
                             </div>
-                            <h1 class="text-2xl font-black tracking-tighter text-white">PEDSA <span class="text-sky-400">ST</span></h1>
+                            <!-- 移动端关闭侧边栏按钮喵~ -->
+                            <button id="mobile-sidebar-close" class="md:hidden p-2 text-white/50 hover:text-white">
+                                <i data-lucide="x" class="w-6 h-6"></i>
+                            </button>
                         </div>
                         <p class="text-[10px] font-bold text-sky-400/50 uppercase tracking-[0.2em] ml-1">Memory Topology OS</p>
                     </div>
@@ -373,84 +416,88 @@
                 <!-- 主内容区域 -->
                 <main class="flex-1 h-full relative flex flex-col overflow-hidden main-content">
                     <!-- 顶部状态栏 -->
-                    <header class="h-20 px-10 flex items-center justify-between z-10">
+                    <header class="h-20 px-6 md:px-10 flex items-center justify-between z-10 border-b border-white/5">
                         <div class="flex items-center gap-4">
-                            <div class="h-8 w-[1px] bg-white/10"></div>
-                            <div id="breadcrumb" class="text-sm text-sky-100/40 font-medium">System / <span class="text-sky-100">Dashboard</span></div>
+                            <!-- 移动端侧边栏开启按钮喵~ -->
+                            <button id="mobile-sidebar-open" class="md:hidden p-2 text-white/70 hover:text-white bg-white/5 rounded-xl">
+                                <i data-lucide="menu" class="w-6 h-6"></i>
+                            </button>
+                            <div class="h-8 w-[1px] bg-white/10 hidden md:block"></div>
+                            <div id="breadcrumb" class="text-xs md:text-sm text-sky-100/40 font-medium">System / <span class="text-sky-100">Dashboard</span></div>
                         </div>
-                        <div class="flex items-center gap-6">
+                        <div class="flex items-center gap-4 md:gap-6">
                             <div class="flex flex-col items-end">
-                                <span class="text-[10px] font-bold text-sky-400/50 uppercase">Active Nodes</span>
-                                <span class="text-lg font-black text-white mono" id="stat-nodes-count">0</span>
+                                <span class="text-[9px] md:text-[10px] font-bold text-sky-400/50 uppercase">Active Nodes</span>
+                                <span class="text-base md:text-lg font-black text-white mono" id="stat-nodes-count">0</span>
                             </div>
-                            <button id="pedsa-refresh-btn" class="w-12 h-12 glass rounded-2xl flex items-center justify-center hover:bg-sky-500/10 hover:border-sky-500/30 transition-all">
-                                <i data-lucide="refresh-cw" class="w-5 h-5 text-sky-400"></i>
+                            <button id="pedsa-refresh-btn" class="w-10 h-10 md:w-12 md:h-12 glass rounded-2xl flex items-center justify-center hover:bg-sky-500/10 hover:border-sky-500/30 transition-all">
+                                <i data-lucide="refresh-cw" class="w-4 h-4 md:w-5 md:h-5 text-sky-400"></i>
                             </button>
                         </div>
                     </header>
 
-                    <div class="flex-1 overflow-y-auto px-10 pb-10 custom-scrollbar">
+                    <div class="flex-1 overflow-y-auto px-6 md:px-10 pb-10 custom-scrollbar">
                         <!-- 概览视图 -->
-                        <section id="content-dashboard" class="view-section active space-y-8">
-                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                                <div class="lg:col-span-2 glass rounded-[2.5rem] p-10 border-sky-400/10 relative overflow-hidden group">
+                        <section id="content-dashboard" class="view-section active space-y-6 md:space-y-8">
+                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+                                <div class="lg:col-span-2 glass rounded-[2.5rem] p-6 md:p-10 border-sky-400/10 relative overflow-hidden group">
                                     <div class="absolute -right-20 -top-20 w-80 h-80 bg-sky-500/10 rounded-full blur-[100px] group-hover:bg-sky-500/20 transition-all duration-700"></div>
-                                    <h3 class="text-4xl font-black mb-2 text-white tracking-tighter">记忆扩散指纹</h3>
-                                    <p class="text-sky-400/60 mb-8 font-medium">当前活跃状态的四维向量共鸣分析</p>
+                                    <h3 class="text-2xl md:text-4xl font-black mb-2 text-white tracking-tighter">记忆扩散指纹</h3>
+                                    <p class="text-xs md:text-sm text-sky-400/60 mb-6 md:mb-8 font-medium">当前活跃状态的四维向量共鸣分析</p>
                                     
-                                    <div class="grid grid-cols-2 gap-10 mt-10">
-                                        <div class="space-y-4">
-                                            <div class="flex justify-between text-[11px] font-bold uppercase tracking-wider text-sky-400/70">
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-10 mt-6 md:mt-10">
+                                        <div class="space-y-3 md:space-y-4">
+                                            <div class="flex justify-between text-[10px] md:text-[11px] font-bold uppercase tracking-wider text-sky-400/70">
                                                 <span>Semantic 语义</span>
                                                 <span class="text-sky-300" id="text-semantic">0%</span>
                                             </div>
-                                            <div class="h-2.5 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5" id="bar-semantic">
+                                            <div class="h-2 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5" id="bar-semantic">
                                                 <div class="h-full bg-gradient-to-r from-sky-600 to-sky-400 rounded-full w-[0%] transition-all duration-500"></div>
                                             </div>
                                         </div>
-                                        <div class="space-y-4">
-                                            <div class="flex justify-between text-[11px] font-bold uppercase tracking-wider text-sky-400/70">
+                                        <div class="space-y-3 md:space-y-4">
+                                            <div class="flex justify-between text-[10px] md:text-[11px] font-bold uppercase tracking-wider text-sky-400/70">
                                                 <span>Temporal 时间</span>
                                                 <span class="text-sky-300" id="text-temporal">0%</span>
                                             </div>
-                                            <div class="h-2.5 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5" id="bar-temporal">
+                                            <div class="h-2 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5" id="bar-temporal">
                                                 <div class="h-full bg-gradient-to-r from-sky-500 to-sky-300 rounded-full w-[0%] transition-all duration-500"></div>
                                             </div>
                                         </div>
-                                        <div class="space-y-4">
-                                            <div class="flex justify-between text-[11px] font-bold uppercase tracking-wider text-sky-400/70">
+                                        <div class="space-y-3 md:space-y-4">
+                                            <div class="flex justify-between text-[10px] md:text-[11px] font-bold uppercase tracking-wider text-sky-400/70">
                                                 <span>Affective 情感</span>
                                                 <span class="text-sky-300" id="text-affective">0%</span>
                                             </div>
-                                            <div class="h-2.5 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5" id="bar-affective">
+                                            <div class="h-2 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5" id="bar-affective">
                                                 <div class="h-full bg-gradient-to-r from-pink-500 to-pink-300 rounded-full w-[0%] transition-all duration-500"></div>
                                             </div>
                                         </div>
-                                        <div class="space-y-4">
-                                            <div class="flex justify-between text-[11px] font-bold uppercase tracking-wider text-sky-400/70">
+                                        <div class="space-y-3 md:space-y-4">
+                                            <div class="flex justify-between text-[10px] md:text-[11px] font-bold uppercase tracking-wider text-sky-400/70">
                                                 <span>Entity 实体</span>
                                                 <span class="text-sky-300" id="text-entity">0%</span>
                                             </div>
-                                            <div class="h-2.5 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5" id="bar-entity">
+                                            <div class="h-2 bg-white/5 rounded-full overflow-hidden border border-white/5 p-0.5" id="bar-entity">
                                                 <div class="h-full bg-gradient-to-r from-sky-400 to-sky-200 rounded-full w-[0%] transition-all duration-500"></div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div class="glass rounded-[2.5rem] p-8 border-sky-400/10 flex flex-col">
-                                    <h4 class="text-xl font-bold mb-6 flex items-center gap-3 text-white">
+                                <div class="glass rounded-[2.5rem] p-6 md:p-8 border-sky-400/10 flex flex-col h-[300px] md:h-auto">
+                                    <h4 class="text-lg md:text-xl font-bold mb-4 md:mb-6 flex items-center gap-3 text-white">
                                         <i data-lucide="terminal" class="w-5 h-5 text-sky-400"></i>
                                         内核运行日志
                                     </h4>
-                                    <div id="log-container" class="flex-1 space-y-3 mono text-[11px] overflow-y-auto pr-2 custom-scrollbar">
+                                    <div id="log-container" class="flex-1 space-y-3 mono text-[10px] md:text-[11px] overflow-y-auto pr-2 custom-scrollbar">
                                         <!-- 日志项 -->
                                     </div>
                                 </div>
                             </div>
 
-                            <div class="glass rounded-[2.5rem] p-10 border-sky-400/10">
-                                <h3 class="text-2xl font-bold mb-8 flex items-center gap-3 text-white">
+                            <div class="glass rounded-[2.5rem] p-6 md:p-10 border-sky-400/10">
+                                <h3 class="text-xl md:text-2xl font-bold mb-6 md:mb-8 flex items-center gap-3 text-white">
                                     <i data-lucide="history" class="w-6 h-6 text-sky-400"></i>
                                     最新记忆事件
                                 </h3>
@@ -464,20 +511,20 @@
                         <section id="content-network" class="view-section hidden h-[calc(100vh-160px)] relative overflow-hidden glass rounded-[2.5rem] border-sky-400/10">
                             <div id="graph-container" class="w-full h-full"></div>
                             
-                            <div id="node-detail" class="absolute bottom-8 right-8 p-6 glass rounded-3xl hidden z-20 w-72 border-sky-400/30 shadow-2xl">
+                            <div id="node-detail" class="absolute bottom-6 right-6 p-6 glass rounded-3xl hidden z-20 w-[calc(100%-3rem)] md:w-72 border-sky-400/30 shadow-2xl">
                                 <!-- 节点详情内容 -->
                             </div>
                         </section>
 
                         <!-- 配置视图 -->
-                        <section id="content-settings" class="view-section hidden space-y-8">
-                            <div class="glass rounded-[2.5rem] p-10 border-sky-400/10 max-w-3xl">
-                                <h3 class="text-2xl font-bold mb-8 text-white flex items-center justify-between">
+                        <section id="content-settings" class="view-section hidden space-y-6 md:space-y-8">
+                            <div class="glass rounded-[2.5rem] p-6 md:p-10 border-sky-400/10 max-w-3xl">
+                                <h3 class="text-xl md:text-2xl font-bold mb-6 md:mb-8 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                                     <div class="flex items-center gap-3">
                                         <i data-lucide="settings-2" class="w-6 h-6 text-sky-400"></i>
                                         内核配置
                                     </div>
-                                    <div class="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-2xl border border-white/5">
+                                    <div class="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-2xl border border-white/5 w-fit">
                                         <span class="text-xs font-bold text-sky-400/60 uppercase tracking-widest">系统状态</span>
                                         <label class="relative inline-flex items-center cursor-pointer">
                                             <input type="checkbox" id="setting-plugin-enabled" class="sr-only peer">
@@ -487,24 +534,24 @@
                                 </h3>
                                 <div class="space-y-6">
                                     <div class="input-group">
-                                        <label class="text-xs font-bold text-sky-400/60 uppercase tracking-widest ml-1">API Endpoint</label>
-                                        <input type="text" id="setting-llm-endpoint" class="input-field mono text-sm" placeholder="https://api.openai.com/v1">
+                                        <label class="text-[10px] md:text-xs font-bold text-sky-400/60 uppercase tracking-widest ml-1">API Endpoint</label>
+                                        <input type="text" id="setting-llm-endpoint" class="input-field mono text-xs md:text-sm" placeholder="https://api.openai.com/v1">
                                     </div>
                                     
                                     <div class="input-group">
-                                        <label class="text-xs font-bold text-sky-400/60 uppercase tracking-widest ml-1">API Key</label>
-                                        <input type="password" id="setting-llm-key" class="input-field mono text-sm" placeholder="sk-...">
+                                        <label class="text-[10px] md:text-xs font-bold text-sky-400/60 uppercase tracking-widest ml-1">API Key</label>
+                                        <input type="password" id="setting-llm-key" class="input-field mono text-xs md:text-sm" placeholder="sk-...">
                                     </div>
 
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div class="input-group">
-                                            <label class="text-xs font-bold text-sky-400/60 uppercase tracking-widest ml-1">模型选择</label>
-                                            <select id="setting-llm-model" class="input-field mono text-sm appearance-none cursor-pointer">
+                                            <label class="text-[10px] md:text-xs font-bold text-sky-400/60 uppercase tracking-widest ml-1">模型选择</label>
+                                            <select id="setting-llm-model" class="input-field mono text-xs md:text-sm appearance-none cursor-pointer">
                                                 <option value="">请先获取模型列表...</option>
                                             </select>
                                         </div>
                                         <div class="flex items-end">
-                                            <button id="fetch-models-btn" class="btn-secondary w-full flex items-center justify-center gap-2">
+                                            <button id="fetch-models-btn" class="btn-secondary w-full flex items-center justify-center gap-2 py-3 text-sm">
                                                 <i data-lucide="refresh-cw" class="w-4 h-4"></i>
                                                 获取模型列表
                                             </button>
@@ -513,19 +560,19 @@
 
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div class="input-group">
-                                            <label class="text-xs font-bold text-sky-400/60 uppercase tracking-widest ml-1">总结频率 (轮次)</label>
-                                            <input type="number" id="setting-trigger-frequency" class="input-field mono text-sm" placeholder="5" min="1" max="100">
-                                            <p class="text-[10px] text-white/30 mt-1 ml-1">每隔多少轮对话触发一次 LLM 总结喵~</p>
+                                            <label class="text-[10px] md:text-xs font-bold text-sky-400/60 uppercase tracking-widest ml-1">总结频率 (轮次)</label>
+                                            <input type="number" id="setting-trigger-frequency" class="input-field mono text-xs md:text-sm" placeholder="5" min="1" max="100">
+                                            <p class="text-[9px] md:text-[10px] text-white/30 mt-1 ml-1">每隔多少轮对话触发一次 LLM 总结喵~</p>
                                         </div>
                                         <div class="input-group">
-                                            <label class="text-xs font-bold text-sky-400/60 uppercase tracking-widest ml-1">注入深度 (Depth)</label>
-                                            <input type="number" id="setting-injection-depth" class="input-field mono text-sm" placeholder="0" min="0" max="100">
-                                            <p class="text-[10px] text-white/30 mt-1 ml-1">记忆注入 Prompt 的深度，0 为最顶层喵~</p>
+                                            <label class="text-[10px] md:text-xs font-bold text-sky-400/60 uppercase tracking-widest ml-1">注入深度 (Depth)</label>
+                                            <input type="number" id="setting-injection-depth" class="input-field mono text-xs md:text-sm" placeholder="0" min="0" max="100">
+                                            <p class="text-[9px] md:text-[10px] text-white/30 mt-1 ml-1">记忆注入 Prompt 的深度，0 为最顶层喵~</p>
                                         </div>
                                     </div>
 
                                     <div class="pt-4">
-                                        <button id="save-settings-btn" class="btn-primary w-full py-4 text-lg">
+                                        <button id="save-settings-btn" class="btn-primary w-full py-4 text-base md:text-lg">
                                             保存核心配置
                                         </button>
                                     </div>
@@ -560,11 +607,29 @@
         }
 
         bindEvents() {
+            const sidebar = this.overlay.querySelector('.sidebar');
+            const overlay = this.overlay.querySelector('.sidebar-overlay');
+            const openBtn = this.overlay.querySelector('#mobile-sidebar-open');
+            const closeBtn = this.overlay.querySelector('#mobile-sidebar-close');
+
+            const toggleSidebar = (isOpen) => {
+                sidebar.classList.toggle('sidebar-open', isOpen);
+                overlay.classList.toggle('active', isOpen);
+            };
+
+            if (openBtn) openBtn.onclick = () => toggleSidebar(true);
+            if (closeBtn) closeBtn.onclick = () => toggleSidebar(false);
+            if (overlay) overlay.onclick = () => toggleSidebar(false);
+
             // 侧边栏切换
             this.overlay.querySelectorAll('.nav-item').forEach(item => {
                 item.onclick = () => {
                     const view = item.getAttribute('data-view');
                     this.switchView(view);
+                    // 移动端切换后自动关闭侧边栏喵~
+                    if (window.innerWidth <= 768) {
+                        toggleSidebar(false);
+                    }
                 };
             });
 

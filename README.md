@@ -9,16 +9,6 @@
 - **实时拓扑渲染**: 提供华丽的仪表盘 UI，实时展示记忆节点的激活状态与连接权重。
 - **酒馆深度集成**: 完美适配 SillyTavern 插件架构，监听聊天事件并自动管理上下文。
 
-## 🚀 快速安装
-
-1. 下载本仓库：
-   ```bash
-   git clone https://github.com/YoKONCy/PEDSA-ST.git
-   ```
-2. 将 `PEDSA-ST` 文件夹放入 SillyTavern 安装目录下的 `public/extensions/` 文件夹中喵~
-3. 启动或重启 SillyTavern。
-4. 在酒馆右侧栏的 **Extensions (扩展)** 选项卡中找到 **PEDSA 记忆拓扑** 即可开启！
-
 ## 🛠️ 技术架构
 
 - **[GraphEngine.js](src/core/GraphEngine.js)**: 记忆图谱核心引擎，处理节点激活与衰减逻辑。
