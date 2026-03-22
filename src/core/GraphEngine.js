@@ -383,22 +383,55 @@ class GraphEngine {
     }
 
     /**
-     * 导出图谱状态
+     * 导出图谱状态 (V3 双层图谱版)
      */
     exportState() {
         return {
             nodes: Array.from(this.nodes.entries()),
-            edges: Array.from(this.edges.entries())
+            ontologyEdges: Array.from(this.ontologyEdges.entries()),
+            memoryEdges: Array.from(this.memoryEdges.entries()),
+            temporalIndex: Array.from(this.temporalIndex.entries()),
+            affectiveIndex: Array.from(this.affectiveIndex.entries()),
+            inDegrees: Array.from(this.inDegrees.entries()),
+            eventChronology: [...this.eventChronology],
+            storyTime: this.storyTime
         };
     }
 
     /**
-     * 导入图谱状态
+     * 导入图谱状态 (V3 双层图谱版)
      */
     importState(state) {
         if (!state) return;
         this.nodes = new Map(state.nodes);
-        this.edges = new Map(state.edges);
+        
+        // 兼容旧版数据格式喵~
+        if (state.ontologyEdges) {
+            this.ontologyEdges = new Map(state.ontologyEdges);
+        }
+        if (state.memoryEdges) {
+            this.memoryEdges = new Map(state.memoryEdges);
+        }
+        // 旧版 edges 兼容：全部导入到 memoryEdges
+        if (state.edges && !state.ontologyEdges) {
+            this.memoryEdges = new Map(state.edges);
+        }
+        
+        if (state.temporalIndex) {
+            this.temporalIndex = new Map(state.temporalIndex);
+        }
+        if (state.affectiveIndex) {
+            this.affectiveIndex = new Map(state.affectiveIndex);
+        }
+        if (state.inDegrees) {
+            this.inDegrees = new Map(state.inDegrees);
+        }
+        if (state.eventChronology) {
+            this.eventChronology = [...state.eventChronology];
+        }
+        if (state.storyTime !== undefined) {
+            this.storyTime = state.storyTime;
+        }
     }
 }
 

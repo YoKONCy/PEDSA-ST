@@ -564,10 +564,16 @@
                                             <input type="number" id="setting-trigger-frequency" class="input-field mono text-xs md:text-sm" placeholder="5" min="1" max="100">
                                             <p class="text-[9px] md:text-[10px] text-white/30 mt-1 ml-1">每隔多少轮对话触发一次 LLM 总结喵~</p>
                                         </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div class="input-group">
                                             <label class="text-[10px] md:text-xs font-bold text-sky-400/60 uppercase tracking-widest ml-1">注入深度 (Depth)</label>
                                             <input type="number" id="setting-injection-depth" class="input-field mono text-xs md:text-sm" placeholder="0" min="0" max="100">
                                             <p class="text-[9px] md:text-[10px] text-white/30 mt-1 ml-1">记忆注入 Prompt 的深度，0 为最顶层喵~</p>
+                                        </div>
+                                        <div class="input-group">
+                                            <label class="text-[10px] md:text-xs font-bold text-sky-400/60 uppercase tracking-widest ml-1">召回条数 (Top K)</label>
+                                            <input type="number" id="setting-recall-topk" class="input-field mono text-xs md:text-sm" placeholder="10" min="1" max="30">
+                                            <p class="text-[9px] md:text-[10px] text-white/30 mt-1 ml-1">每次检索唤醒并注入 Prompt 的最大记忆条数喵~</p>
                                         </div>
                                     </div>
 
@@ -742,6 +748,7 @@
                 this.overlay.querySelector('#setting-llm-key').value = settings.key || '';
                 this.overlay.querySelector('#setting-trigger-frequency').value = settings.frequency || 5;
                 this.overlay.querySelector('#setting-injection-depth').value = settings.depth || 0;
+                this.overlay.querySelector('#setting-recall-topk').value = settings.topK || 10;
                 
                 const modelSelect = this.overlay.querySelector('#setting-llm-model');
                 if (settings.model) {
@@ -871,7 +878,8 @@
                 key: this.overlay.querySelector('#setting-llm-key').value,
                 model: this.overlay.querySelector('#setting-llm-model').value,
                 frequency: parseInt(this.overlay.querySelector('#setting-trigger-frequency').value) || 5,
-                depth: parseInt(this.overlay.querySelector('#setting-injection-depth').value) || 0
+                depth: parseInt(this.overlay.querySelector('#setting-injection-depth').value) || 0,
+                topK: parseInt(this.overlay.querySelector('#setting-recall-topk').value) || 10
             };
             this.pedsa.dashboard.saveSettings(settings);
             const btn = this.overlay.querySelector('#save-settings-btn');
@@ -1335,13 +1343,26 @@
         exportState() {
             return {
                 nodes: Array.from(this.nodes.entries()),
-                edges: Array.from(this.edges.entries())
+                ontologyEdges: Array.from(this.ontologyEdges.entries()),
+                memoryEdges: Array.from(this.memoryEdges.entries()),
+                temporalIndex: Array.from(this.temporalIndex.entries()),
+                affectiveIndex: Array.from(this.affectiveIndex.entries()),
+                inDegrees: Array.from(this.inDegrees.entries()),
+                eventChronology: [...this.eventChronology],
+                storyTime: this.storyTime
             };
         }
         importState(state) {
             if (!state) return;
             this.nodes = new Map(state.nodes);
-            this.edges = new Map(state.edges);
+            if (state.ontologyEdges) this.ontologyEdges = new Map(state.ontologyEdges);
+            if (state.memoryEdges) this.memoryEdges = new Map(state.memoryEdges);
+            if (state.edges && !state.ontologyEdges) this.memoryEdges = new Map(state.edges);
+            if (state.temporalIndex) this.temporalIndex = new Map(state.temporalIndex);
+            if (state.affectiveIndex) this.affectiveIndex = new Map(state.affectiveIndex);
+            if (state.inDegrees) this.inDegrees = new Map(state.inDegrees);
+            if (state.eventChronology) this.eventChronology = [...state.eventChronology];
+            if (state.storyTime !== undefined) this.storyTime = state.storyTime;
         }
     }
 
@@ -1723,17 +1744,26 @@
                 try {
                     const context = window.SillyTavern.getContext();
                     const eventSource = context.eventSource;
-                    if (!eventSource) {
+                    // 使用酒馆提供的事件类型常量喵~
+                    const eventTypes = context.eventTypes || context.event_types;
+                    if (!eventSource || !eventTypes) {
                         return false;
                     }
-                    eventSource.on('message_sent', (payload) => this._handleMessage('user', payload));
-                    eventSource.on('message_received', (payload) => this._handleMessage('char', payload));
-                    eventSource.on('message_deleted', (payload) => this._handleRecall(payload));
+                    
+                    // 使用枚举常量注册事件 (更可靠喵~)
+                    const MSG_SENT = eventTypes.MESSAGE_SENT || 'message_sent';
+                    const MSG_RECEIVED = eventTypes.MESSAGE_RECEIVED || 'message_received';
+                    const MSG_DELETED = eventTypes.MESSAGE_DELETED || 'message_deleted';
+                    const GEN_STARTING = eventTypes.GENERATION_STARTING || eventTypes.GENERATE_BEFORE_COMBINE_PROMPTS || 'generate_before_combine_prompts';
+                    
+                    eventSource.on(MSG_SENT, (payload) => this._handleMessage('user', payload));
+                    eventSource.on(MSG_RECEIVED, (payload) => this._handleMessage('char', payload));
+                    eventSource.on(MSG_DELETED, (payload) => this._handleRecall(payload));
                     
                     // 监听生成开始事件，准备注入记忆喵~
-                    eventSource.on('gen_starting', () => this._injectMemoryToPrompt());
+                    eventSource.on(GEN_STARTING, () => this._injectMemoryToPrompt());
                     
-                    this.dashboard.log('INF', '[TavernIntegration] 酒馆事件监听已启动喵~');
+                    this.dashboard.log('INF', `[TavernIntegration] 酒馆事件监听已启动喵~ (${MSG_SENT}, ${MSG_RECEIVED})`);
                     return true;
                 } catch (err) {
                     console.error('[PEDSA-ST] 初始化酒馆事件监听失败:', err);
@@ -1753,9 +1783,33 @@
                 }, 1000);
             }
         }
-        async _handleMessage(role, payload) {
+        async _handleMessage(role, messageId) {
             if (this.settings.enabled === false) return;
-            const content = payload.mes || '';
+            
+            // SillyTavern 的事件 payload 是消息在 chat 数组中的索引号喵~
+            // 需要通过 context.chat[messageId] 获取实际消息对象
+            let content = '';
+            try {
+                if (typeof window !== 'undefined' && window.SillyTavern) {
+                    const context = window.SillyTavern.getContext();
+                    const msg = context.chat[messageId];
+                    if (msg && msg.mes) {
+                        content = msg.mes;
+                    }
+                }
+            } catch (e) {
+                console.warn('[PEDSA-ST] 获取消息内容失败:', e);
+            }
+            
+            // 兼容：如果 messageId 本身就是字符串（某些版本的酒馆），直接使用
+            if (!content && typeof messageId === 'string' && messageId.length > 0) {
+                content = messageId;
+            }
+            // 兼容：如果 messageId 是包含 mes 的对象
+            if (!content && typeof messageId === 'object' && messageId !== null && messageId.mes) {
+                content = messageId.mes;
+            }
+            
             if (!content) return;
             if (role === 'user') {
                 this.dashboard.log('INF', `[PEDSA-ST] 正在检索共鸣记忆: "${content.substring(0, 20)}..."`);
@@ -1857,7 +1911,25 @@
         }
         async _callLLM(userContent, charResponse) {
             const storyDay = this.engine.storyTime;
-            const prompt = `# 图谱构建提示词\n\n你是一个专业的知识图谱架构师... (省略长提示词以节省流量, 保持原逻辑) ...`;
+            const prompt = '# 图谱构建提示词\n\n'
+                + '你是一个专业的知识图谱架构师。你的任务是在每次对话结束后，分析用户的发言，并输出增量的图谱维护指令。\n\n'
+                + '**当前故事天数 (Current Story Day)**: `第 ' + storyDay + ' 天`\n'
+                + '**对话上下文**:\n- **用户**: "' + userContent.replace(/"/g, '\\"') + '"\n- **AI**: "' + charResponse.replace(/"/g, '\\"') + '"\n\n'
+                + '## 1. 核心任务\n\n请从最近的对话中提取以下两部分内容：\n\n'
+                + '### A. 事件节点\n'
+                + '- **Summary**: 简洁的总结(50字左右)，必须以"故事第 X 天"开头。包含时间、地点、人物/事物、起因、结果。\n'
+                + '- **Features**: 提取关键词语列表，须与 Ontology 词语一致。\n'
+                + '- **Type**: PERSON | TECH | EVENT | LOCATION | OBJECT | VALUES\n'
+                + '- **Emotion**: JOY | SHY | FEAR | SURPRISE | SADNESS | DISGUST | ANGER | ANTICIPATION\n'
+                + '- **Time**: 故事天数整数。\n\n'
+                + '### B. Ontology 节点\n'
+                + '定义库。仅限实词，拆解为最小意义单元，专有名词保持完整。\n'
+                + '连接类型：representation(表征) | equality(等价) | inhibition(抑制)\n'
+                + 'strength: 0.0 - 1.0\n\n'
+                + '## 2. 输出格式 (JSON Only)\n'
+                + '请只输出有效的 JSON：\n'
+                + '{"new_event":{"summary":"...","features":[...],"type":"...","emotion":"...","time":number},'
+                + '"ontology_updates":[{"source":"...","target":"...","relation_type":"...","strength":number}]}';
             const response = await fetch(`${this.settings.endpoint}/chat/completions`, {
                 method: 'POST',
                 headers: {
@@ -1866,7 +1938,7 @@
                 },
                 body: JSON.stringify({
                     model: this.settings.model,
-                    messages: [{ role: 'user', content: prompt + `\n\n**当前故事天数 (Current Story Day)**: \`第 ${storyDay} 天\`\n**对话上下文**:\n- **用户**: "${userContent}"\n- **AI**: "${charResponse}"` }],
+                    messages: [{ role: 'user', content: prompt }],
                     temperature: 0.3,
                     response_format: { type: "json_object" }
                 })
@@ -1881,7 +1953,84 @@
     }
 
     // ==========================================
-    // 10. PEDSA Main
+    // 10. Storage.js
+    // ==========================================
+    class Storage {
+        constructor(dbName = 'PEDSA_Memory', storeName = 'GraphData') {
+            this.dbName = dbName;
+            this.storeName = storeName;
+            this.db = null;
+        }
+        async init() {
+            if (typeof indexedDB === 'undefined') {
+                console.warn('[Storage] IndexedDB 不可用，使用内存模拟。');
+                this.isMock = true;
+                this.mockData = {};
+                return;
+            }
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(this.dbName, 2);
+                request.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(this.storeName)) db.createObjectStore(this.storeName);
+                };
+                request.onsuccess = (e) => { this.db = e.target.result; resolve(); };
+                request.onerror = (e) => { reject('IndexedDB 初始化失败: ' + e.target.error); };
+            });
+        }
+        async saveGraph(engine) {
+            const data = engine.exportState();
+            data.lastSaved = Date.now();
+            if (this.isMock) { this.mockData['graph'] = data; return; }
+            return this._put('graph', data);
+        }
+        async loadGraph(engine) {
+            let data = this.isMock ? (this.mockData['graph'] || null) : await this._get('graph');
+            if (!data) return false;
+            engine.importState(data);
+            return true;
+        }
+        async saveMatcher(matcher) {
+            const data = { definitions: matcher.definitions, lastSaved: Date.now() };
+            if (this.isMock) { this.mockData['matcher'] = data; return; }
+            return this._put('matcher', data);
+        }
+        async loadMatcher(matcher) {
+            let data = this.isMock ? (this.mockData['matcher'] || null) : await this._get('matcher');
+            if (!data || !data.definitions) return false;
+            matcher.definitions = data.definitions;
+            matcher.build();
+            return true;
+        }
+        async clear() {
+            if (this.isMock) { this.mockData = {}; return; }
+            return new Promise((resolve, reject) => {
+                const tx = this.db.transaction([this.storeName], 'readwrite');
+                const req = tx.objectStore(this.storeName).clear();
+                req.onsuccess = () => resolve();
+                req.onerror = () => reject(req.error);
+            });
+        }
+        _put(key, value) {
+            return new Promise((resolve, reject) => {
+                const tx = this.db.transaction([this.storeName], 'readwrite');
+                const req = tx.objectStore(this.storeName).put(value, key);
+                req.onsuccess = () => resolve();
+                req.onerror = () => reject(req.error);
+            });
+        }
+        _get(key) {
+            return new Promise((resolve, reject) => {
+                const tx = this.db.transaction([this.storeName], 'readonly');
+                const req = tx.objectStore(this.storeName).get(key);
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+        }
+    }
+
+    // ==========================================
+    // 11. PEDSA Main
     // ==========================================
 
 class PEDSA {
@@ -1892,6 +2041,7 @@ class PEDSA {
             this.dashboard = new DashboardManager(this.engine, this.matcher);
             this.tavern = new TavernIntegration(this.engine, this.dashboard, this.matcher);
             this.ui = new PEDSAUI(this);
+            this.storage = new Storage();
 
             this.dashboard.onUpdate = (type, data) => {
                 this._broadcastSnapshot();
@@ -1900,10 +2050,42 @@ class PEDSA {
                 this.tavern.updateSettings(settings);
             };
 
+            // 初始化持久化存储并加载图谱喵~
+            this._initStorage();
             this._initTavernEvents();
             setInterval(() => this._broadcastSnapshot(), 5000);
+            // 每 60 秒自动保存一次图谱喵~
+            setInterval(() => this._autoSave(), 60000);
             this._injectExtensionPageButton();
             console.log('[PEDSA-ST] 系统初始化完成！喵呜~');
+        }
+
+        async _initStorage() {
+            try {
+                await this.storage.init();
+                const graphLoaded = await this.storage.loadGraph(this.engine);
+                const matcherLoaded = await this.storage.loadMatcher(this.matcher);
+                if (graphLoaded) {
+                    this.dashboard.log('INF', `[Storage] 图谱已从 IndexedDB 恢复 (${this.engine.nodes.size} 节点, 剧情时钟: ${this.engine.storyTime})`);
+                    this._broadcastSnapshot();
+                } else {
+                    this.dashboard.log('INF', '[Storage] 未找到已保存的图谱，使用空白图谱');
+                }
+            } catch (err) {
+                console.error('[PEDSA-ST] 存储初始化失败:', err);
+                this.dashboard.log('ERR', '[Storage] 初始化失败: ' + err);
+            }
+        }
+
+        async _autoSave() {
+            if (this.engine.nodes.size === 0) return;
+            try {
+                await this.storage.saveGraph(this.engine);
+                await this.storage.saveMatcher(this.matcher);
+                this.dashboard.log('INF', `[Storage] 自动保存完成 (${this.engine.nodes.size} 节点)`);
+            } catch (err) {
+                this.dashboard.log('ERR', '[Storage] 自动保存失败: ' + err);
+            }
         }
 
         _initTavernEvents() {

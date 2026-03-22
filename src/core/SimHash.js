@@ -41,48 +41,7 @@ class SimHash {
         return 1.0 - (distance / 64.0);
     }
 
-    /**
-     * 构建 SimHash (V3 多模态组合) 喵~
-     * @param {Object} parts - { semantic, temporal, affective, entity }
-     * @returns {SimHash}
-     */
-    static build({ semantic = 0n, temporal = 0n, affective = 0n, entity = 0n }) {
-        let val = (BigInt(semantic) & 0xFFFFFFFFn);
-        val |= (BigInt(temporal) & 0xFFFFn) << 32n;
-        val |= (BigInt(affective) & 0xFFn) << 48n;
-        val |= (BigInt(entity) & 0xFFn) << 56n;
-        return new SimHash(val);
-    }
-
-    /**
-     * 融合多个 SimHash (Bit-Voting 算法) 喵~
-     * @param {SimHash[]} hashes 
-     * @returns {SimHash}
-     */
-    static combine(hashes) {
-        if (!hashes || hashes.length === 0) return new SimHash(0n);
-        if (hashes.length === 1) return hashes[0];
-
-        let bits = new Array(64).fill(0);
-        for (const h of hashes) {
-            let v = h.value;
-            for (let i = 0; i < 64; i++) {
-                if ((v & (1n << BigInt(i))) !== 0n) {
-                    bits[i]++;
-                } else {
-                    bits[i]--;
-                }
-            }
-        }
-
-        let result = 0n;
-        for (let i = 0; i < 64; i++) {
-            if (bits[i] > 0) {
-                result |= (1n << BigInt(i));
-            }
-        }
-        return new SimHash(result);
-    }
+    // build() 和 combine() 定义在文件底部喵~
 
     /**
      * 获取指定维度的哈希值

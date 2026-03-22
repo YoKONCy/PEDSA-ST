@@ -85,10 +85,13 @@ class DashboardManager {
             }
         }
         return {
+            enabled: true,
             endpoint: '',
             key: '',
             model: 'gpt-3.5-turbo',
-            frequency: 5
+            frequency: 5,
+            depth: 0,
+            topK: 10
         };
     }
 
