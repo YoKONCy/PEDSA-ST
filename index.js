@@ -1884,6 +1884,16 @@
                 return;
             }
             this.dashboard.log('INF', '[TavernIntegration] 正在调用 LLM 进行图谱总结与构建...');
+            
+            // 使用酒馆原生 toastr 弹出非模态通知喵~
+            if (typeof toastr !== 'undefined') {
+                toastr.info('正在调用 LLM 进行图谱总结与构建...', 'PEDSA-ST 图谱构建', {
+                    timeOut: 4000,
+                    extendedTimeOut: 2000,
+                    progressBar: true
+                });
+            }
+            
             const userMsgs = this.messageBuffer.filter(m => m.role === 'user').map(m => m.content).join('\n');
             const charMsgs = this.messageBuffer.filter(m => m.role === 'char').map(m => m.content).join('\n');
             try {
@@ -1904,9 +1914,27 @@
                         features: result.new_event.features
                     });
                     this.dashboard.log('INF', `[TavernIntegration] 图谱维护完成: ${result.new_event.summary} (剧情时钟: ${this.engine.storyTime})`);
+                    
+                    // 构建成功通知喵~
+                    if (typeof toastr !== 'undefined') {
+                        toastr.success(
+                            `${result.new_event.summary}`,
+                            `PEDSA-ST 图谱更新 (第 ${this.engine.storyTime} 天)`,
+                            { timeOut: 6000, extendedTimeOut: 3000, progressBar: true }
+                        );
+                    }
                 }
             } catch (err) {
                 this.dashboard.log('ERR', `[TavernIntegration] LLM 调用失败: ${err.message}`);
+                
+                // 构建失败通知喵~
+                if (typeof toastr !== 'undefined') {
+                    toastr.error(
+                        `LLM 调用失败: ${err.message}`,
+                        'PEDSA-ST 图谱构建错误',
+                        { timeOut: 8000, extendedTimeOut: 4000, progressBar: true }
+                    );
+                }
             }
         }
         async _callLLM(userContent, charResponse) {
